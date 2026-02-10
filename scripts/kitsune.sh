@@ -60,6 +60,8 @@ Render:
   output-target <mpvpaper|layer-shell>
   spectrum-mode <single|group>
   group-file <path.group>
+  group files
+  group create <name|name.group>
   group validate <file.group>
   group list-layers [file.group]
   group add-layer "<csv|layer=csv>" [file.group]
@@ -1509,6 +1511,50 @@ cmd_group_validate() {
   fi
 }
 
+cmd_group_files() {
+  local dir="./config/groups"
+  if [[ ! -d "$dir" ]]; then
+    echo "[x] No existe directorio de grupos: $dir"
+    exit 1
+  fi
+  local f
+  shopt -s nullglob
+  for f in "$dir"/*.group; do
+    basename "$f"
+  done | sort
+}
+
+cmd_group_create() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    echo "Uso: kitsune group create <name|name.group>"
+    exit 1
+  fi
+
+  if [[ "$name" == */* ]]; then
+    echo "[x] Solo nombre de archivo, sin rutas: $name"
+    exit 1
+  fi
+
+  local file="$name"
+  if [[ "$file" != *.group ]]; then
+    file="${file}.group"
+  fi
+  local path="./config/groups/${file}"
+  mkdir -p "./config/groups"
+  if [[ -f "$path" ]]; then
+    echo "[x] Group ya existe: $file"
+    exit 1
+  fi
+
+  cat > "$path" <<'EOF'
+# kitsune group file
+# formato:
+# layer=enabled,mode,style,profile,color,alpha[,runtime][,rotate][,profiles_pipe]
+EOF
+  echo "[OK] group creado: $file"
+}
+
 cmd_group_list_layers() {
   local file
   file="$(resolve_group_file "${1:-}")" || {
@@ -2114,8 +2160,16 @@ case "$cmd" in
     ;;
   group)
     case "${1:-}" in
-      validate)
+      files)
         shift
+        cmd_group_files "$@"
+        ;;
+      create)
+        shift || true
+        cmd_group_create "$@"
+        ;;
+      validate)
+        shift || true
         cmd_group_validate "$@"
         ;;
       list-layers)
@@ -2135,7 +2189,7 @@ case "$cmd" in
         cmd_group_remove_layer "$@"
         ;;
       *)
-        echo "Uso: kitsune group <validate|list-layers|add-layer|update-layer|remove-layer> ..."
+        echo "Uso: kitsune group <files|create|validate|list-layers|add-layer|update-layer|remove-layer> ..."
         exit 1
         ;;
     esac

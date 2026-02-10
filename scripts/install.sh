@@ -273,7 +273,18 @@ if [[ "$DYNAMIC_COLOR" == "1" ]]; then
 fi
 
 echo "[i] Compilando Kitsune (release)..."
-cargo build --release
+if [[ -f ./Cargo.toml ]]; then
+  cargo build --release
+else
+  BIN_DIR="${KITSUNE_BIN_DIR:-./bin}"
+  if [[ -x "$BIN_DIR/kitsune" && -x "$BIN_DIR/kitsune-layer" ]]; then
+    echo "[i] Cargo.toml no encontrado; usando binarios empaquetados en $BIN_DIR"
+  else
+    echo "[x] No hay Cargo.toml y faltan binarios empaquetados en $BIN_DIR"
+    echo "[i] Reinstala el paquete AUR o ejecuta install desde un checkout del repo."
+    exit 1
+  fi
+fi
 
 echo "[i] Instalando comando global 'kitsune'..."
 install_global_cli
