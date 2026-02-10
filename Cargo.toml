@@ -1,0 +1,14 @@
+[package]
+name = "kitsune"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+bytemuck = { version = "1.20", features = ["derive"] }
+pollster = "0.4"
+wgpu = "24.0"
+memmap2 = "0.9"
+tempfile = "3.14"
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }

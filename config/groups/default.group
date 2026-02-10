@@ -1,0 +1,14 @@
+# layer format:
+# layer=enabled,mode,style,profile,color,alpha[,runtime][,rotate][,profiles_pipe][,test_profile_file][,postfx_enabled=0|1][,postfx_blur_passes=0..4][,postfx_blur_mix=0..1][,postfx_glow_strength=0..3][,postfx_glow_mix=0..1]
+# mode: bars|ring
+# style: bars|waves|waves_fill|dots
+# color: #RRGGBB
+# alpha: 0.0..1.0
+# runtime (optional): standard|test|global
+# rotate (optional): 0|1|global
+# profiles_pipe (optional): p1|p2|p3
+# test_profile_file (optional): ./config/profiles/test.profile
+
+layer=1,ring,waves_fill,ring_video_uno,#ff2f8f,0.85,standard,1,ring_video_uno|ring_video_dos|ring_energy,postfx_enabled=1,postfx_blur_passes=2,postfx_blur_mix=0.22,postfx_glow_strength=1.8,postfx_glow_mix=0.30
+layer=1,ring,waves,ring_video_dos,#ffd6e9,0.55,standard,1,ring_video_dos|ring_energy
+layer=1,bars,bars,bars_balanced,#8fd6ff,0.45,test,0,,./config/profiles/test.profile,postfx_enabled=0

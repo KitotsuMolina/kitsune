@@ -1,0 +1,135 @@
+#compdef kitsune
+
+_kitsune_profiles() {
+  if (( $+commands[kitsune] )); then
+    kitsune profiles list all 2>/dev/null
+  else
+    print -l config/profiles/*.profile(N:t:r)
+  fi
+}
+
+_kitsune_monitors() {
+  if (( $+commands[hyprctl] )); then
+    hyprctl monitors 2>/dev/null | awk '/^Monitor /{print $2}'
+  fi
+}
+
+_kitsune_group_files() {
+  print -l config/groups/*.group(N:t)
+}
+
+local -a commands
+commands=(
+  'install:Prepare/install dependencies'
+  'start:Start stack or per-monitor instance'
+  'stop:Stop stack or per-monitor instance'
+  'restart:Restart stack'
+  'status:Show status'
+  'doctor:Diagnostics'
+  'run:Run renderer'
+  'logs:Show logs'
+  'layer-status:Show layer output status'
+  'config:Config operations'
+  'visual:Set mode and style'
+  'style:Set style'
+  'mode:Set mode'
+  'backend:Set backend'
+  'output-target:Set output target'
+  'spectrum-mode:Set spectrum mode'
+  'group-file:Set group file'
+  'group:Group operations'
+  'runtime:Set runtime mode'
+  'rotate:Rotate commands'
+  'rotation:Set rotation seconds'
+  'profiles:Profile operations'
+  'test-load:Load test profile'
+  'profile-edit:Edit profile key'
+  'tune:Apply tuning preset'
+  'dynamic-color:Toggle dynamic color'
+  'color-poll:Set color poll interval'
+  'colorwatch:Run color watcher'
+  'postfx:Set postfx'
+  'particles:Set particles'
+  'particles-look:Set particles look'
+  'particles-preset:Set particles preset'
+  'monitors:List monitors'
+  'monitor:Set monitor'
+  'monitor-fallback:Set monitor fallback'
+  'autostart:Autostart control'
+  'instances:Instances control'
+  'instance-status:Show instance status'
+  'clean:Clean runtime artifacts'
+  'reset:Reset configs'
+  'benchmark:Run benchmark'
+  'help:Show help'
+)
+
+if (( CURRENT == 2 )); then
+  _describe 'command' commands
+  return
+fi
+
+case "$words[2]" in
+  start)
+    _arguments \
+      '--monitor[Monitor name]:monitor:($(_kitsune_monitors))' \
+      '--profile[Single static profile]:profile:($(_kitsune_profiles))' \
+      '--profiles[Profile list comma-separated]:profiles:' \
+      '--target[Output target]:target:(mpvpaper layer-shell)' \
+      '--mode[Mode]:mode:(bars ring)' \
+      '2:monitor:($(_kitsune_monitors))'
+    ;;
+  stop)
+    _arguments '--monitor[Monitor name]:monitor:($(_kitsune_monitors))' '2:monitor:($(_kitsune_monitors))'
+    ;;
+  logs)
+    _arguments '2:source:(renderer cava mpvpaper layer colorwatch monitorwatch all)' '--lines[Line count]:n:' '-f[Follow]' '--follow[Follow]' '--all-instances[Show logs for all instances]'
+    ;;
+  status)
+    _arguments '--all-instances[Show global + all instances]'
+    ;;
+  doctor)
+    _arguments '--fix[Apply quick fixes]' '--all-instances[Validate all instances]'
+    ;;
+  backend)
+    _arguments '2:backend:(cpu gpu)'
+    ;;
+  output-target)
+    _arguments '2:target:(mpvpaper layer-shell)'
+    ;;
+  spectrum-mode)
+    _arguments '2:mode:(single group)'
+    ;;
+  group)
+    _arguments '2:subcommand:(validate list-layers add-layer update-layer remove-layer)'
+    ;;
+  profiles)
+    _arguments '2:subcommand:(list show set-list set-static rotate clone set)'
+    ;;
+  instances)
+    _arguments '2:subcommand:(list status)' '3:monitor:($(_kitsune_monitors))'
+    ;;
+  instance-status)
+    _arguments '2:monitor:($(_kitsune_monitors))'
+    ;;
+  monitor)
+    _arguments '2:subcommand:(set)' '3:monitor:($(_kitsune_monitors))'
+    ;;
+  monitors)
+    _arguments '2:subcommand:(list)'
+    ;;
+  autostart)
+    _arguments '2:action:(enable disable status list)' '--monitor[Monitor for instance autostart]:monitor:($(_kitsune_monitors))'
+    ;;
+  reset)
+    _arguments '--restart[Restart after reset]'
+    ;;
+  clean)
+    _arguments '--force[Stop before clean]'
+    ;;
+  help)
+    _arguments '2:topic:(restart logs layer-status doctor config rotate instances)'
+    ;;
+  *)
+    ;;
+esac
