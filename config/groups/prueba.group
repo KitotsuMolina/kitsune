@@ -1,0 +1,5 @@
+# kitsune group file
+# formato:
+# layer=enabled,mode,style,profile,color,alpha[,runtime][,rotate][,profiles_pipe]
+layer=1,bars,bars_fill,bars_balanced,#ffffff,0.35
+layer=1,bars,bars,bars_balanced,#ffffff,0.35

@@ -1,11 +1,11 @@
 # Core
 backend=gpu
-spectrum_mode=group
-group_file=default.group
+spectrum_mode=single
+group_file=./config/groups/default.group
 group_poll_ms=400
 mode=bars
-runtime_mode=standard
-monitor=DP-1
+runtime_mode=test
+monitor=eDP-1
 monitor_fallback_enabled=1
 monitor_fallback_prefer_focused=1
 monitor_fallback_check_seconds=2

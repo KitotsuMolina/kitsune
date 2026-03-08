@@ -9,6 +9,5 @@
 # profiles_pipe (optional): p1|p2|p3
 # test_profile_file (optional): ./config/profiles/test.profile
 
-layer=1,ring,waves_fill,ring_video_uno,#ff2f8f,0.85,standard,1,ring_video_uno|ring_video_dos|ring_energy,postfx_enabled=1,postfx_blur_passes=2,postfx_blur_mix=0.22,postfx_glow_strength=1.8,postfx_glow_mix=0.30
-layer=1,ring,waves,ring_video_dos,#ffd6e9,0.55,standard,1,ring_video_dos|ring_energy
-layer=1,bars,bars,bars_balanced,#8fd6ff,0.45,test,0,,./config/profiles/test.profile,postfx_enabled=0
+layer=1,bars,bars,bars_balanced,#ffffff,0.35
+layer=1,bars,bars_fill,bars_balanced,#74f7ff,0.30
