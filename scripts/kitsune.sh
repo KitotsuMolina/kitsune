@@ -2254,11 +2254,17 @@ cmd_clean() {
 }
 
 ensure_default_files() {
-  if [[ ! -f "$DEFAULT_CFG" ]]; then
+  if [[ ! -f "$DEFAULT_CFG" && -f "$CFG" ]]; then
     cp "$CFG" "$DEFAULT_CFG"
   fi
-  if [[ ! -f "$DEFAULT_CAVA_CFG" ]]; then
+  if [[ ! -f "$DEFAULT_CAVA_CFG" && -f "$CAVA_CFG" ]]; then
     cp "$CAVA_CFG" "$DEFAULT_CAVA_CFG"
+  fi
+  if [[ ! -f "$CFG" && -f "$DEFAULT_CFG" ]]; then
+    cp "$DEFAULT_CFG" "$CFG"
+  fi
+  if [[ ! -f "$CAVA_CFG" && -f "$DEFAULT_CAVA_CFG" ]]; then
+    cp "$DEFAULT_CAVA_CFG" "$CAVA_CFG"
   fi
 }
 
@@ -2409,9 +2415,9 @@ case "$cmd" in
         echo "[x] Uso: kitsune run [--config <path>]"
         exit 1
       fi
-      ./target/release/kitsune --config "$2"
+      ./target/release/kitsune run --config "$2"
     else
-      ./target/release/kitsune --config ./config/base.conf
+      ./target/release/kitsune run --config ./config/base.conf
     fi
     ;;
   config)

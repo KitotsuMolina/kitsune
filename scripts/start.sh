@@ -125,6 +125,11 @@ if [[ "$OUTPUT_TARGET" == "layer-shell" ]]; then
     --monitor "$TARGET_MONITOR" >"${LOG_PREFIX}-layer.log" 2>&1 &
   echo $! > "$PID_LAYER"
 else
+  if command -v swww >/dev/null 2>&1 && pgrep -x swww-daemon >/dev/null 2>&1; then
+    echo "[i] Detected swww-daemon running; stopping it so mpvpaper can be visible..."
+    swww kill >/dev/null 2>&1 || true
+    systemctl --user stop swww-daemon.service swww-daemon@kitowall.service >/dev/null 2>&1 || true
+  fi
   echo "[i] Starting mpvpaper on ${TARGET_MONITOR}..."
   mpvpaper --layer bottom \
     -o "no-audio --background=none \
@@ -156,7 +161,7 @@ if [[ "$DYNAMIC_COLOR" == "1" ]]; then
 fi
 
 echo "[i] Starting renderer..."
-./target/release/kitsune --config "$CFG" >"${LOG_PREFIX}-renderer.log" 2>&1 &
+./target/release/kitsune run --config "$CFG" >"${LOG_PREFIX}-renderer.log" 2>&1 &
 echo $! > "$PID_REN"
 
 if [[ "$DYNAMIC_COLOR" == "1" ]]; then
