@@ -511,9 +511,25 @@ cmd_start() {
   fi
 
   if [[ -z "$monitor" ]]; then
-    echo "[x] Debes indicar monitor para start por instancia."
-    echo "Uso: kitsune start <monitor> [--profile <name>|--profiles <p1,p2>] [--target <layer-shell>] [--mode <bars|ring>]"
-    exit 1
+    local configured_monitor focused_monitor first_monitor
+    configured_monitor="$(cfg_get monitor "")"
+    if command -v hyprctl >/dev/null 2>&1; then
+      focused_monitor="$(hyprctl monitors 2>/dev/null | awk '
+        /^Monitor / {mon=$2}
+        /^[[:space:]]*focused:[[:space:]]*yes/ {if (mon!="") {print mon; exit}}
+      ' || true)"
+      first_monitor="$(hyprctl monitors 2>/dev/null | awk '/^Monitor /{print $2; exit}' || true)"
+    fi
+    if [[ -n "$configured_monitor" ]]; then
+      monitor="$configured_monitor"
+    elif [[ -n "$focused_monitor" ]]; then
+      monitor="$focused_monitor"
+    elif [[ -n "$first_monitor" ]]; then
+      monitor="$first_monitor"
+    else
+      monitor="eDP-1"
+    fi
+    echo "[i] start sin monitor explicito. Usando '$monitor'."
   fi
 
   if [[ -n "$profile" && -n "$profiles" ]]; then
