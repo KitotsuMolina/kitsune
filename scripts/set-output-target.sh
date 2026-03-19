@@ -5,8 +5,8 @@ cd "$(dirname "$0")/.."
 CFG="./config/base.conf"
 TARGET="${1:-}"
 
-if [[ "$TARGET" != "mpvpaper" && "$TARGET" != "layer-shell" ]]; then
-  echo "Uso: kitsune output-target <mpvpaper|layer-shell>"
+if [[ "$TARGET" != "layer-shell" ]]; then
+  echo "Uso: kitsune output-target <layer-shell>"
   exit 1
 fi
 

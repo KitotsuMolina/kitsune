@@ -1,0 +1,9 @@
+# Lightweight test group
+# Minimal two-layer composition to validate group-mode responsiveness.
+# Designed so the bars base and waves overlay are visually distinct.
+#
+# layer format:
+# layer=enabled,mode,style,profile,color,alpha[,runtime][,rotate][,profiles_pipe][,test_profile_file][,postfx_enabled=0|1][,postfx_blur_passes=0..4][,postfx_blur_mix=0..1][,postfx_glow_strength=0..3][,postfx_glow_mix=0..1]
+
+layer=1,bars,bars,bars_balanced,#f4f7fb,0.34,standard,0
+layer=1,bars,waves,bars_dense,#5ee6ff,0.24,standard,0

@@ -3,6 +3,10 @@
 Ruta:
 `/ruta/a/Kitsune`
 
+Si la instalacion de host de `kitsune` esta rota o el wrapper entra en recursion, revisa:
+
+- [docs/host-install-repair.md](/home/kitotsu/Programacion/Personal/Wallpaper/Kitsune/docs/host-install-repair.md)
+
 ```bash
 # 1) Iniciar todo
 kitsune start

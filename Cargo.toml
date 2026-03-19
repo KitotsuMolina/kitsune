@@ -12,3 +12,5 @@ memmap2 = "0.9"
 tempfile = "3.14"
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+gtk = { package = "gtk4", version = "0.10" }
+gtk4-layer-shell = "0.6"

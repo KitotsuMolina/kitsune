@@ -193,7 +193,7 @@ install_shell_completions() {
 }
 
 missing_required=()
-required_cmds=(cargo rustc cava mpvpaper mpv)
+required_cmds=(cargo rustc cava)
 for c in "${required_cmds[@]}"; do
   if ! cmd_exists "$c"; then
     missing_required+=("$c")
@@ -206,16 +206,16 @@ if [[ "${#missing_required[@]}" -gt 0 ]]; then
     mgr="$(detect_pkg_manager)"
     case "$mgr" in
       apt)
-        pkgs=(cargo rustc cava mpv mpvpaper)
+        pkgs=(cargo rustc cava libgtk-4-dev)
         ;;
       pacman)
-        pkgs=(rust cava mpv mpvpaper)
+        pkgs=(rust cava gtk4 gtk4-layer-shell)
         ;;
       dnf)
-        pkgs=(rust cargo cava mpv mpvpaper)
+        pkgs=(rust cargo cava gtk4)
         ;;
       zypper)
-        pkgs=(rust cargo cava mpv mpvpaper)
+        pkgs=(rust cargo cava gtk4)
         ;;
       *)
         pkgs=()

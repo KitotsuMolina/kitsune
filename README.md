@@ -5,6 +5,12 @@ Visualizador de audio para Hyprland/Wayland, escrito en Rust.
 Pipeline:
 `PulseAudio/PipeWire -> CAVA -> renderer (CPU/GPU) -> RGBA FIFO -> mpvpaper | layer-shell`
 
+## Troubleshooting
+
+Si tu instalacion de host de `kitsune` falla con errores de rutas relativas, recursion del wrapper o `fork: retry`, revisa:
+
+- [docs/host-install-repair.md](/home/kitotsu/Programacion/Personal/Wallpaper/Kitsune/docs/host-install-repair.md)
+
 ## Visión
 
 Este proyecto busca un visualizador de escritorio estable y configurable, con:

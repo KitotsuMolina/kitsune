@@ -24,8 +24,6 @@ cfg_get() {
   fi
 }
 
-FIFO_VIDEO="$(cfg_get fifo_video /tmp/kitsune-spectrum.rgba)"
-FIFO_CAVA="$(cfg_get fifo_cava /tmp/cava-rs.raw)"
 STOP_TIMEOUT="${KITSUNE_STOP_TIMEOUT:-3}"
 FORCE_KILL="${KITSUNE_FORCE_KILL:-1}"
 
@@ -65,7 +63,6 @@ killpid "$PID_MPV"
 killpid "$PID_LAYER"
 killpid "$PID_COLOR"
 
-rm -f "$FIFO_VIDEO" "$FIFO_CAVA" 2>/dev/null || true
 rm -f "${RUN_PREFIX}/target_monitor" "${RUN_PREFIX}/target_reason" 2>/dev/null || true
 
 echo "[OK] Stopped"

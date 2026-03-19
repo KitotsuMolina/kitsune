@@ -4,7 +4,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CFG="${KITSUNE_CFG:-./config/base.conf}"
-CAVA_CFG="${KITSUNE_CAVA_CFG:-./config/cava.conf}"
 RUN_PREFIX="${KITSUNE_RUN_PREFIX:-./.run}"
 LOG_PREFIX="${KITSUNE_LOG_PREFIX:-/tmp/kitsune}"
 PID_MPV="${RUN_PREFIX}/mpvpaper.pid"
@@ -39,7 +38,7 @@ DYNAMIC_COLOR="$(cfg_get dynamic_color 0)"
 COLOR_FILE="$(cfg_get color_source_file /tmp/kitsune-accent.hex)"
 COLOR_POLL="$(cfg_get color_poll_seconds 2)"
 BASE_COLOR="$(cfg_get color '#ff2f8f')"
-OUTPUT_TARGET="$(cfg_get output_target mpvpaper)"
+OUTPUT_TARGET="$(cfg_get output_target layer-shell)"
 
 mkdir -p "$RUN_PREFIX"
 
@@ -88,7 +87,7 @@ resolve_start_monitor() {
   local alt
   alt="$(pick_fallback_monitor "$prefer_focused")"
   if [[ -n "$alt" ]]; then
-    echo "[i] Monitor '${preferred}' no disponible. Usando fallback '${alt}'."
+    echo "[i] Monitor '${preferred}' no disponible. Usando fallback '${alt}'." >&2
     printf '%s' "$alt"
     return
   fi
@@ -103,53 +102,18 @@ fi
 printf '%s\n' "$TARGET_MONITOR" > "${RUN_PREFIX}/target_monitor"
 printf '%s\n' "$TARGET_REASON" > "${RUN_PREFIX}/target_reason"
 
-echo "[i] Building Rust renderer..."
-cargo build --release --bins
-
-echo "[i] Creating FIFOs..."
-rm -f "$FIFO_VIDEO" "$FIFO_CAVA"
-mkfifo "$FIFO_VIDEO"
-mkfifo "$FIFO_CAVA"
-
-# Keep cava output path aligned with base config fifo_cava
-if [[ -f "$CAVA_CFG" ]]; then
-  sed -i "s|^raw_target = .*|raw_target = ${FIFO_CAVA}|" "$CAVA_CFG"
+if [[ "$OUTPUT_TARGET" != "layer-shell" ]]; then
+  echo "[x] output_target=$OUTPUT_TARGET ya no es compatible."
+  echo "    Usa: kitsune output-target layer-shell"
+  exit 1
 fi
 
-if [[ "$OUTPUT_TARGET" == "layer-shell" ]]; then
-  echo "[i] Starting native layer-shell frontend on ${TARGET_MONITOR}..."
-  ./target/release/kitsune-layer \
-    --fifo "$FIFO_VIDEO" \
-    --width "$WIDTH" \
-    --height "$HEIGHT" \
-    --monitor "$TARGET_MONITOR" >"${LOG_PREFIX}-layer.log" 2>&1 &
-  echo $! > "$PID_LAYER"
-else
-  if command -v swww >/dev/null 2>&1 && pgrep -x swww-daemon >/dev/null 2>&1; then
-    echo "[i] Detected swww-daemon running; stopping it so mpvpaper can be visible..."
-    swww kill >/dev/null 2>&1 || true
-    systemctl --user stop swww-daemon.service swww-daemon@kitowall.service >/dev/null 2>&1 || true
-  fi
-  echo "[i] Starting mpvpaper on ${TARGET_MONITOR}..."
-  mpvpaper --layer bottom \
-    -o "no-audio --background=none \
-    --untimed \
-    --cache=no \
-    --cache-secs=0 \
-    --demuxer-readahead-secs=0 \
-    --demuxer-max-bytes=16MiB \
-    --demuxer=rawvideo \
-    --demuxer-rawvideo-w=${WIDTH} \
-    --demuxer-rawvideo-h=${HEIGHT} \
-    --demuxer-rawvideo-fps=${FPS} \
-    --demuxer-rawvideo-mp-format=rgba" \
-    "$TARGET_MONITOR" "$FIFO_VIDEO" >"${LOG_PREFIX}-mpvpaper.log" 2>&1 &
-  echo $! > "$PID_MPV"
-fi
+echo "[i] Building GTK overlay frontend..."
+cargo build --release --bin kitsune-overlay
 
-echo "[i] Starting cava..."
-cava -p "$CAVA_CFG" >"${LOG_PREFIX}-cava.log" 2>&1 &
-echo $! > "$PID_CAVA"
+echo "[i] Starting gtk4-layer-shell overlay on ${TARGET_MONITOR}..."
+./target/release/kitsune-overlay --config "$CFG" >"${LOG_PREFIX}-layer.log" 2>&1 &
+echo $! > "$PID_LAYER"
 
 if [[ "$DYNAMIC_COLOR" == "1" ]]; then
   printf '%s\n' "$BASE_COLOR" > "$COLOR_FILE"
@@ -159,10 +123,6 @@ if [[ "$DYNAMIC_COLOR" == "1" ]]; then
     ./scripts/wallpaper-accent-watcher.sh "$TARGET_MONITOR" "$COLOR_FILE" "$COLOR_POLL" --once >"${LOG_PREFIX}-colorwatch.log" 2>&1 || true
   fi
 fi
-
-echo "[i] Starting renderer..."
-./target/release/kitsune run --config "$CFG" >"${LOG_PREFIX}-renderer.log" 2>&1 &
-echo $! > "$PID_REN"
 
 if [[ "$DYNAMIC_COLOR" == "1" ]]; then
   if { command -v kitowall >/dev/null 2>&1 || command -v swww >/dev/null 2>&1 || command -v hyprctl >/dev/null 2>&1 || [[ -f "$HOME/.config/hypr/hyprpaper.conf" ]]; } \
@@ -175,23 +135,8 @@ if [[ "$DYNAMIC_COLOR" == "1" ]]; then
   fi
 fi
 
-if [[ "$OUTPUT_TARGET" == "mpvpaper" ]] && [[ "$MONITOR_FALLBACK_ENABLED" == "1" ]] && command -v hyprctl >/dev/null 2>&1; then
-  echo "[i] Starting monitor fallback watcher..."
-  ./scripts/monitor-fallback-watch.sh "$CFG" "$PID_MPV" "$PID_COLOR" "$PID_MON" "$TARGET_MONITOR" >"${LOG_PREFIX}-monitorwatch.log" 2>&1 &
-  echo $! > "$PID_MON"
-fi
-
 echo "[OK] Running"
-echo "     renderer: ${LOG_PREFIX}-renderer.log"
-echo "     cava:     ${LOG_PREFIX}-cava.log"
-if [[ "$OUTPUT_TARGET" == "layer-shell" ]]; then
-  echo "     layer:    ${LOG_PREFIX}-layer.log"
-else
-  echo "     mpvpaper: ${LOG_PREFIX}-mpvpaper.log"
-fi
+echo "     overlay:  ${LOG_PREFIX}-layer.log"
 if [[ -f "$PID_COLOR" ]]; then
   echo "     color:    ${LOG_PREFIX}-colorwatch.log"
-fi
-if [[ -f "$PID_MON" ]]; then
-  echo "     monitor:  ${LOG_PREFIX}-monitorwatch.log"
 fi

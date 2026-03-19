@@ -33,7 +33,7 @@ Uso:
 
 Comandos base:
   install [--install-packages]
-  start [<monitor>] [--monitor <name>] [--profile <name>|--profiles <p1,p2,...>] [--target <mpvpaper|layer-shell>] [--mode <bars|ring>]
+  start [<monitor>] [--monitor <name>] [--profile <name>|--profiles <p1,p2,...>] [--target <layer-shell>] [--mode <bars|ring>]
   stop [<monitor>|--monitor <name>]
   restart [--rebuild]
   status [--all-instances]
@@ -57,7 +57,7 @@ Visual:
 
 Render:
   backend <cpu|gpu>
-  output-target <mpvpaper|layer-shell>
+  output-target <layer-shell>
   spectrum-mode <single|group>
   group-file <path.group>
   group files
@@ -513,7 +513,7 @@ cmd_start() {
 
   if [[ -z "$monitor" ]]; then
     echo "[x] Debes indicar monitor para start por instancia."
-    echo "Uso: kitsune start <monitor> [--profile <name>|--profiles <p1,p2>] [--target <mpvpaper|layer-shell>] [--mode <bars|ring>]"
+    echo "Uso: kitsune start <monitor> [--profile <name>|--profiles <p1,p2>] [--target <layer-shell>] [--mode <bars|ring>]"
     exit 1
   fi
 
@@ -522,8 +522,8 @@ cmd_start() {
     exit 1
   fi
 
-  if [[ -n "$target" && "$target" != "mpvpaper" && "$target" != "layer-shell" ]]; then
-    echo "[x] target invalido: $target (usa mpvpaper|layer-shell)"
+  if [[ -n "$target" && "$target" != "layer-shell" ]]; then
+    echo "[x] target invalido: $target (usa layer-shell)"
     exit 1
   fi
 
@@ -558,7 +558,7 @@ cmd_start() {
     effective_target="$target"
   else
     effective_target="$(awk -F= '$1 ~ "^[[:space:]]*output_target[[:space:]]*$" {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$cfg_inst")"
-    [[ -n "$effective_target" ]] || effective_target="mpvpaper"
+    [[ -n "$effective_target" ]] || effective_target="layer-shell"
   fi
 
   if command -v hyprctl >/dev/null 2>&1; then
@@ -573,8 +573,8 @@ cmd_start() {
     else
       echo "[!] hyprctl sin salida: no se pudo validar monitor '$monitor'. Continuando."
     fi
-  elif [[ "$effective_target" == "mpvpaper" ]]; then
-    echo "[!] hyprctl no disponible: no se pudo validar monitor '$monitor' para mpvpaper."
+  elif [[ "$effective_target" == "layer-shell" ]]; then
+    echo "[!] hyprctl no disponible: no se pudo validar monitor '$monitor' para layer-shell."
   fi
 
   local selected_mode="$mode"
@@ -835,16 +835,13 @@ pid_state() {
 }
 
 stack_is_running() {
-  local r c m l
-  r="$(pid_state "$PID_REN")"
-  c="$(pid_state "$PID_CAVA")"
-  m="$(pid_state "$PID_MPV")"
+  local l
   l="$(pid_state "$PID_LAYER")"
-  [[ "$r" == running:* && "$c" == running:* && ( "$m" == running:* || "$l" == running:* ) ]]
+  [[ "$l" == running:* ]]
 }
 
 print_status() {
-  local backend spectrum mode bars_style ring_style runtime mon rot rot_sec dyn fifo_v fifo_c group_file output_target
+  local backend spectrum mode bars_style ring_style runtime mon rot rot_sec dyn group_file output_target
   backend="$(cfg_get backend cpu)"
   spectrum="$(cfg_get spectrum_mode single)"
   mode="$(cfg_get mode bars)"
@@ -855,10 +852,8 @@ print_status() {
   rot="$(cfg_get rotate_profiles 0)"
   rot_sec="$(cfg_get rotation_seconds 10)"
   dyn="$(cfg_get dynamic_color 0)"
-  fifo_v="$(cfg_get fifo_video /tmp/kitsune-spectrum.rgba)"
-  fifo_c="$(cfg_get fifo_cava /tmp/cava-rs.raw)"
   group_file="$(cfg_get group_file ./config/groups/default.group)"
-  output_target="$(cfg_get output_target mpvpaper)"
+  output_target="$(cfg_get output_target layer-shell)"
   local real_mon reason
   real_mon="$(cat "$RUN_DIR/target_monitor" 2>/dev/null || true)"
   reason="$(cat "$RUN_DIR/target_reason" 2>/dev/null || true)"
@@ -884,8 +879,6 @@ print_status() {
   echo "  rotate_profiles=$rot"
   echo "  rotation_seconds=$rot_sec"
   echo "  dynamic_color=$dyn"
-  echo "  fifo_video=$fifo_v"
-  echo "  fifo_cava=$fifo_c"
 
   echo "PIDs:"
   local f b s
@@ -904,20 +897,12 @@ print_status() {
   echo "  renderer=$LOG_RENDERER"
   echo "  cava=$LOG_CAVA"
   echo "  mpvpaper=$LOG_MPV"
-  echo "  layer=$LOG_LAYER"
+  echo "  overlay=$LOG_LAYER"
   echo "  colorwatch=$LOG_COLOR"
   echo "  monitorwatch=$LOG_MON"
 
-  local fps
-  fps="$(grep -Eo 'fps[=: ]+[0-9]+(\.[0-9]+)?' "$LOG_RENDERER" 2>/dev/null | tail -n1 | grep -Eo '[0-9]+(\.[0-9]+)?' || true)"
-  if [[ -n "$fps" ]]; then
-    echo "Runtime metrics:"
-    echo "  fps_real=$fps"
-    awk -v f="$fps" 'BEGIN {if (f>0) printf "  frame_ms=%.2f\n", (1000/f)}'
-  else
-    echo "Runtime metrics:"
-    echo "  fps_real=n/a (renderer log sin trazas fps)"
-  fi
+  echo "Runtime metrics:"
+  echo "  fps_real=n/a (gtk overlay directo; sin metrica expuesta aun)"
 }
 
 cmd_status() {
@@ -1044,7 +1029,7 @@ cmd_logs() {
 
 cmd_layer_status() {
   local output_target monitor pid_state_line
-  output_target="$(cfg_get output_target mpvpaper)"
+  output_target="$(cfg_get output_target layer-shell)"
   monitor="$(cfg_get monitor DP-1)"
   pid_state_line="$(pid_state "$PID_LAYER")"
 
@@ -1063,12 +1048,12 @@ cmd_layer_status() {
     return 0
   fi
 
-  echo "  layer_log=$LOG_LAYER"
+  echo "  overlay_log=$LOG_LAYER"
   local selected fallback configured last_err
-  selected="$(grep -F '[layer] selected output by monitor name:' "$LOG_LAYER" | tail -n1 || true)"
+  selected="$(grep -E '\\[(layer|overlay)\\].*monitor=' "$LOG_LAYER" | tail -n1 || true)"
   fallback="$(grep -F "[layer] monitor '" "$LOG_LAYER" | grep -F 'not found; using compositor default output' | tail -n1 || true)"
-  configured="$(grep -F '[layer] configured surface' "$LOG_LAYER" | tail -n1 || true)"
-  last_err="$(grep -E 'Error:|\\[layer\\].*error' "$LOG_LAYER" | tail -n1 || true)"
+  configured="$(grep -E '\\[(layer|overlay)\\].*(configured surface|direct gtk4-layer-shell frontend)' "$LOG_LAYER" | tail -n1 || true)"
+  last_err="$(grep -E 'Error:|\\[(layer|overlay)\\].*error' "$LOG_LAYER" | tail -n1 || true)"
 
   if [[ -n "$selected" ]]; then
     echo "  selected_output=${selected#*: }"
@@ -1102,7 +1087,7 @@ cmd_doctor() {
     shift
   done
   local output_target
-  output_target="$(cfg_get output_target mpvpaper)"
+  output_target="$(cfg_get output_target layer-shell)"
   local monitor
   monitor="$(cfg_get monitor DP-1)"
   local dynamic_color
@@ -1111,10 +1096,7 @@ cmd_doctor() {
   local fail=0
   echo "[doctor] Dependencias requeridas"
   local dep
-  local required_deps=(cargo rustc cava mpv)
-  if [[ "$output_target" == "mpvpaper" ]]; then
-    required_deps+=(mpvpaper)
-  fi
+  local required_deps=(cargo rustc cava)
   for dep in "${required_deps[@]}"; do
     if command -v "$dep" >/dev/null 2>&1; then
       echo "  [ok] $dep"
@@ -1163,21 +1145,8 @@ cmd_doctor() {
     fail=1
   fi
 
-  local fifo_v fifo_c
-  fifo_v="$(cfg_get fifo_video /tmp/kitsune-spectrum.rgba)"
-  fifo_c="$(cfg_get fifo_cava /tmp/cava-rs.raw)"
-
-  echo "[doctor] Runtime/FIFOs"
-  if [[ -p "$fifo_v" ]]; then
-    echo "  [ok] FIFO video existe: $fifo_v"
-  else
-    echo "  [!] FIFO video no existe aun: $fifo_v"
-  fi
-  if [[ -p "$fifo_c" ]]; then
-    echo "  [ok] FIFO cava existe: $fifo_c"
-  else
-    echo "  [!] FIFO cava no existe aun: $fifo_c"
-  fi
+  echo "[doctor] Runtime"
+  echo "  [i] gtk4-layer-shell overlay directo: sin FIFO de video"
 
   echo "[doctor] Procesos"
   local f b s
@@ -1202,19 +1171,7 @@ cmd_doctor() {
       fi
     done
 
-    if ! stack_is_running; then
-      rm -f "$fifo_v" "$fifo_c"
-      mkfifo "$fifo_v"
-      mkfifo "$fifo_c"
-      echo "  [fix] recreados FIFOs"
-    else
-      echo "  [fix] stack activo: no se tocaron FIFOs"
-    fi
-
-    if [[ -f "$CAVA_CFG" ]]; then
-      sed -i "s|^raw_target = .*|raw_target = ${fifo_c}|" "$CAVA_CFG"
-      echo "  [fix] cava.conf sincronizado con fifo_cava"
-    fi
+    echo "  [fix] no hay FIFOs que recrear en overlay directo"
   fi
 
   echo "[doctor] Logs recientes"
