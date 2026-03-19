@@ -53,6 +53,10 @@ cmd_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+pkg_exists() {
+  pkg-config --exists "$1" >/dev/null 2>&1
+}
+
 cfg_get() {
   local key="$1"
   local def="$2"
@@ -193,12 +197,21 @@ install_shell_completions() {
 }
 
 missing_required=()
-required_cmds=(cargo rustc cava)
+required_cmds=(cargo rustc cava pkg-config)
 for c in "${required_cmds[@]}"; do
   if ! cmd_exists "$c"; then
     missing_required+=("$c")
   fi
 done
+
+if cmd_exists pkg-config; then
+  if ! pkg_exists gtk4; then
+    missing_required+=(gtk4)
+  fi
+  if ! pkg_exists gtk4-layer-shell-0; then
+    missing_required+=(gtk4-layer-shell)
+  fi
+fi
 
 if [[ "${#missing_required[@]}" -gt 0 ]]; then
   echo "[!] Faltan dependencias requeridas: ${missing_required[*]}"
@@ -206,16 +219,16 @@ if [[ "${#missing_required[@]}" -gt 0 ]]; then
     mgr="$(detect_pkg_manager)"
     case "$mgr" in
       apt)
-        pkgs=(cargo rustc cava libgtk-4-dev)
+        pkgs=(cargo rustc cava pkg-config libgtk-4-dev libgtk4-layer-shell-dev)
         ;;
       pacman)
-        pkgs=(rust cava gtk4 gtk4-layer-shell)
+        pkgs=(rust cava pkgconf gtk4 gtk4-layer-shell)
         ;;
       dnf)
-        pkgs=(rust cargo cava gtk4)
+        pkgs=(rust cargo cava pkgconf-pkg-config gtk4-devel gtk4-layer-shell)
         ;;
       zypper)
-        pkgs=(rust cargo cava gtk4)
+        pkgs=(rust cargo cava pkg-config gtk4-devel gtk4-layer-shell)
         ;;
       *)
         pkgs=()

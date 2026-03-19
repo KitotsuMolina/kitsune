@@ -127,14 +127,13 @@ help_cmd() {
     restart)
       cat <<'EOFH'
 kitsune restart [--rebuild]
-- Reinicia stack completo: frontend de salida (mpvpaper o layer-shell) + cava + renderer + watchers.
-- Limpia y recrea FIFOs runtime.
+- Reinicia stack completo: overlay gtk4-layer-shell + cava + watchers.
 - Por defecto recompila (equivalente a stop + start actual).
 - --rebuild se acepta por compatibilidad semantica; hoy start ya recompila.
 EOFH
       ;;
     logs)
-      echo "kitsune logs [renderer|cava|layer|mpvpaper|colorwatch|monitorwatch|all] [-f] [--lines N] [--all-instances]"
+      echo "kitsune logs [renderer|cava|layer|colorwatch|monitorwatch|all] [-f] [--lines N] [--all-instances]"
       ;;
     layer-status)
       echo "kitsune layer-status"
@@ -1096,7 +1095,7 @@ cmd_doctor() {
   local fail=0
   echo "[doctor] Dependencias requeridas"
   local dep
-  local required_deps=(cargo rustc cava)
+  local required_deps=(cargo rustc cava pkg-config)
   for dep in "${required_deps[@]}"; do
     if command -v "$dep" >/dev/null 2>&1; then
       echo "  [ok] $dep"
@@ -1105,6 +1104,18 @@ cmd_doctor() {
       fail=1
     fi
   done
+  if pkg-config --exists gtk4 2>/dev/null; then
+    echo "  [ok] gtk4"
+  else
+    echo "  [x] gtk4"
+    fail=1
+  fi
+  if pkg-config --exists gtk4-layer-shell-0 2>/dev/null; then
+    echo "  [ok] gtk4-layer-shell"
+  else
+    echo "  [x] gtk4-layer-shell"
+    fail=1
+  fi
 
   echo "[doctor] Dependencias opcionales"
   for dep in hyprctl magick convert; do

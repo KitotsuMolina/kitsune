@@ -7,6 +7,12 @@ Si la instalacion de host de `kitsune` esta rota o el wrapper entra en recursion
 
 - [docs/host-install-repair.md](/home/kitotsu/Programacion/Personal/Wallpaper/Kitsune/docs/host-install-repair.md)
 
+Dependencia obligatoria del overlay en Arch:
+
+```bash
+sudo pacman -S --needed gtk4 gtk4-layer-shell
+```
+
 ```bash
 # 1) Iniciar todo
 kitsune start

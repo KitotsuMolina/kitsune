@@ -3,7 +3,7 @@
 Visualizador de audio para Hyprland/Wayland, escrito en Rust.
 
 Pipeline:
-`PulseAudio/PipeWire -> CAVA -> renderer (CPU/GPU) -> RGBA FIFO -> mpvpaper | layer-shell`
+`PulseAudio/PipeWire -> CAVA -> gtk4-layer-shell overlay draw directly`
 
 ## Troubleshooting
 
@@ -27,7 +27,7 @@ Este proyecto busca un visualizador de escritorio estable y configurable, con:
 - `style`: variante de dibujo dentro del `mode`.
 - `profile`: tuning de respuesta visual/audio.
 - `instance`: stack aislado por monitor.
-- `output_target`: destino de render (`mpvpaper` o `layer-shell`), uno activo por instancia.
+- `output_target`: destino de render. Actualmente `layer-shell` con `gtk4-layer-shell`.
 
 ## Uso básico
 
@@ -42,6 +42,12 @@ Si quieres que también intente instalar paquetes del sistema:
 
 ```bash
 ./scripts/install.sh --install-packages
+```
+
+En Arch, la dependencia gráfica obligatoria del overlay es:
+
+```bash
+sudo pacman -S --needed gtk4 gtk4-layer-shell
 ```
 
 Si además quieres instalar completions de shell durante install:
