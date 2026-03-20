@@ -966,6 +966,14 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let line_max_height_ratio = cfg.line_max_height_ratio;
     let ring_inner_ratio = cfg.ring_inner_ratio;
     let ring_length_ratio = cfg.ring_length_ratio;
+    let bars_wave_thickness = cfg.bars_wave_thickness;
+    let bars_dot_radius = cfg.bars_dot_radius;
+    let ring_wave_thickness = cfg.ring_wave_thickness;
+    let ring_dot_radius = cfg.ring_dot_radius;
+    let bars_wave_roundness = cfg.bars_wave_roundness;
+    let ring_wave_roundness = cfg.ring_wave_roundness;
+    let ring_fill_softness = cfg.ring_fill_softness;
+    let ring_fill_overlap_px = cfg.ring_fill_overlap_px;
     let polygon_sides = cfg.polygon_sides;
     let spectrum_mode = cfg.spectrum_mode;
     let single_mode = cfg.visual_mode;
@@ -1012,6 +1020,14 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     segmented_bars,
                     segment_length,
                     segment_gap,
+                    bars_wave_thickness,
+                    bars_dot_radius,
+                    ring_wave_thickness,
+                    ring_dot_radius,
+                    bars_wave_roundness,
+                    ring_wave_roundness,
+                    ring_fill_softness,
+                    ring_fill_overlap_px,
                     line_max_height_ratio,
                     ring_inner_ratio,
                     ring_length_ratio,
@@ -1043,6 +1059,14 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             segmented_bars,
             segment_length,
             segment_gap,
+            bars_wave_thickness,
+            bars_dot_radius,
+            ring_wave_thickness,
+            ring_dot_radius,
+            bars_wave_roundness,
+            ring_wave_roundness,
+            ring_fill_softness,
+            ring_fill_overlap_px,
             line_max_height_ratio,
             ring_inner_ratio,
             ring_length_ratio,
@@ -1285,21 +1309,29 @@ fn draw_radial_layout(
     segmented_bars: bool,
     segment_length: f64,
     segment_gap: f64,
+    wave_thickness: f64,
+    dot_radius: f64,
+    wave_roundness: f64,
+    fill_softness: f64,
+    fill_overlap_px: f64,
     inner_ratio: f64,
     length_ratio: f64,
     alpha_scale: f64,
 ) {
-    if style == RenderStyle::WavesKwy {
+    if matches!(style, RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesFill) {
         let cx = width * 0.5;
         let cy = height * 0.5;
         let inner = width.min(height) * inner_ratio;
         let span = PI * 2.0;
         let step = span / values.len().max(1) as f64;
         let mut wave_points: Vec<(f64, f64)> = Vec::with_capacity(values.len());
+        let mut inner_points: Vec<(f64, f64)> = Vec::with_capacity(values.len());
         for (index, value) in values.iter().enumerate() {
             let angle = -PI / 2.0 + (index as f64 * step);
             let len = (width.min(height) * length_ratio) * value.clamp(0.0, 1.0);
             wave_points.push((cx + angle.cos() * (inner + len), cy + angle.sin() * (inner + len)));
+            let fill_inner = (inner - fill_overlap_px - (length_ratio * width.min(height) * fill_softness * 0.12)).max(8.0);
+            inner_points.push((cx + angle.cos() * fill_inner, cy + angle.sin() * fill_inner));
         }
         let wave_color = vivid_color(gradient_color(color, color2, 0.58));
         ctx.set_source_rgba(
@@ -1308,7 +1340,32 @@ fn draw_radial_layout(
             wave_color.b,
             (wave_color.a * alpha_scale).clamp(0.0, 1.0),
         );
-        stroke_smooth_path(ctx, &wave_points, true, (bar_thickness * 1.08).max(3.5));
+        if style == RenderStyle::WavesFill {
+            ctx.new_path();
+            if let Some((first_x, first_y)) = wave_points.first().copied() {
+                ctx.move_to(first_x, first_y);
+                for &(x, y) in wave_points.iter().skip(1) {
+                    ctx.line_to(x, y);
+                }
+                for &(x, y) in inner_points.iter().rev() {
+                    ctx.line_to(x, y);
+                }
+                ctx.close_path();
+                let _ = ctx.fill();
+            }
+        } else {
+            let thickness = if style == RenderStyle::WavesKwy {
+                wave_thickness.max((bar_thickness * 1.05).max(3.5))
+            } else {
+                wave_thickness.max((bar_thickness * 0.85).max(2.75))
+            };
+            let roundness = if style == RenderStyle::WavesKwy {
+                wave_roundness.max(0.82)
+            } else {
+                wave_roundness
+            };
+            stroke_smooth_path(ctx, &wave_points, true, thickness, roundness);
+        }
         return;
     }
     let cx = width * 0.5;
@@ -1340,7 +1397,7 @@ fn draw_radial_layout(
             RenderStyle::Dots => {
                 let px = cx + angle.cos() * (inner + len);
                 let py = cy + angle.sin() * (inner + len);
-                ctx.arc(px, py, 4.0, 0.0, PI * 2.0);
+                ctx.arc(px, py, dot_radius.max(2.0), 0.0, PI * 2.0);
                 let _ = ctx.fill();
             }
             _ => {
@@ -1474,6 +1531,14 @@ fn draw_visual_layer(
     segmented_bars: bool,
     segment_length: f64,
     segment_gap: f64,
+    bars_wave_thickness: f64,
+    bars_dot_radius: f64,
+    ring_wave_thickness: f64,
+    ring_dot_radius: f64,
+    bars_wave_roundness: f64,
+    ring_wave_roundness: f64,
+    ring_fill_softness: f64,
+    ring_fill_overlap_px: f64,
     line_max_height_ratio: f64,
     ring_inner_ratio: f64,
     ring_length_ratio: f64,
@@ -1514,6 +1579,9 @@ fn draw_visual_layer(
                 segmented_bars,
                 segment_length,
                 segment_gap,
+                bars_wave_thickness,
+                bars_dot_radius,
+                bars_wave_roundness,
                 line_max_height_ratio,
                 alpha_scale,
             ),
@@ -1551,6 +1619,11 @@ fn draw_visual_layer(
                 segmented_bars,
                 segment_length,
                 segment_gap,
+                ring_wave_thickness,
+                ring_dot_radius,
+                ring_wave_roundness,
+                ring_fill_softness,
+                ring_fill_overlap_px,
                 ring_inner_ratio,
                 ring_length_ratio,
                 alpha_scale,
