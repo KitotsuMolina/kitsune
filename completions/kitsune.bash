@@ -67,14 +67,14 @@ _kitsune_completion() {
       if [[ ${cword} -eq 2 ]]; then
         COMPREPLY=( $(compgen -W "bars ring" -- "$cur") )
       else
-        COMPREPLY=( $(compgen -W "bars bars_fill waves waves_fill dots" -- "$cur") )
+        COMPREPLY=( $(compgen -W "bars bars_fill waves waves_fill dots triangle polygon" -- "$cur") )
       fi
       ;;
     style)
       if [[ ${cword} -eq 2 ]]; then
         COMPREPLY=( $(compgen -W "bars ring" -- "$cur") )
       else
-        COMPREPLY=( $(compgen -W "bars bars_fill waves waves_fill dots" -- "$cur") )
+        COMPREPLY=( $(compgen -W "bars bars_fill waves waves_fill dots triangle polygon" -- "$cur") )
       fi
       ;;
     mode)

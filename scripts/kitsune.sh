@@ -50,8 +50,8 @@ Configuracion:
   config list [--effective]
 
 Visual:
-  visual <bars|ring> <bars|bars_fill|waves|waves_fill|dots>
-  style <bars|ring> <bars|bars_fill|waves|waves_fill|dots>
+  visual <bars|ring> <bars|bars_fill|waves|waves_fill|dots|triangle|polygon>
+  style <bars|ring> <bars|bars_fill|waves|waves_fill|dots|triangle|polygon>
   mode <bars|ring>
   debug overlay <0|1> [--apply]
 
@@ -1732,15 +1732,15 @@ cmd_group_validate() {
     fi
 
     case "$style" in
-      bars|bars_fill|waves|waves_fill|dots) ;;
+      bars|bars_fill|waves|waves_fill|dots|triangle|polygon) ;;
       *)
         echo "[x] linea $ln: style invalido '$style'"
         errors=$((errors + 1))
         ;;
     esac
 
-    if [[ ! "$color" =~ ^#[0-9A-Fa-f]{6}$ ]]; then
-      echo "[x] linea $ln: color invalido '$color' (esperado #RRGGBB)"
+    if [[ ! "$color" =~ ^#[0-9A-Fa-f]{6}$ && "$color" != "accent_light" && "$color" != "accent_mid" && "$color" != "accent_dark" && "$color" != "static" ]]; then
+      echo "[x] linea $ln: color invalido '$color' (esperado #RRGGBB o accent_light/accent_mid/accent_dark)"
       errors=$((errors + 1))
     fi
 
@@ -1772,6 +1772,15 @@ cmd_group_validate() {
         else
           seen_ids["$lid"]="$ln"
         fi
+      elif [[ "$token" == color_mode=* ]]; then
+        local color_mode="${token#color_mode=}"
+        case "$color_mode" in
+          static|accent_light|accent_mid|accent_dark) ;;
+          *)
+            echo "[x] linea $ln: color_mode invalido '$color_mode'"
+            errors=$((errors + 1))
+            ;;
+        esac
       fi
     done
   done < "$file"

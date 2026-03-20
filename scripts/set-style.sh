@@ -6,12 +6,12 @@ TARGET="${1:-}"
 STYLE="${2:-}"
 
 if [[ "$TARGET" != "bars" && "$TARGET" != "ring" ]]; then
-  echo "Uso: ./scripts/set-style.sh <bars|ring> <bars|bars_fill|waves|waves_fill|dots>"
+  echo "Uso: ./scripts/set-style.sh <bars|ring> <bars|bars_fill|waves|waves_fill|dots|triangle|polygon>"
   exit 1
 fi
 
-if [[ "$STYLE" != "bars" && "$STYLE" != "bars_fill" && "$STYLE" != "waves" && "$STYLE" != "waves_fill" && "$STYLE" != "dots" ]]; then
-  echo "Uso: ./scripts/set-style.sh <bars|ring> <bars|bars_fill|waves|waves_fill|dots>"
+if [[ "$STYLE" != "bars" && "$STYLE" != "bars_fill" && "$STYLE" != "waves" && "$STYLE" != "waves_fill" && "$STYLE" != "dots" && "$STYLE" != "triangle" && "$STYLE" != "polygon" ]]; then
+  echo "Uso: ./scripts/set-style.sh <bars|ring> <bars|bars_fill|waves|waves_fill|dots|triangle|polygon>"
   exit 1
 fi
 

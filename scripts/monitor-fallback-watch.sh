@@ -110,7 +110,7 @@ start_colorwatch() {
   local mon="$1"
   local color_file="$2"
   local color_poll="$3"
-  ./scripts/wallpaper-accent-watcher.sh "$mon" "$color_file" "$color_poll" >/tmp/kitsune-colorwatch.log 2>&1 &
+  KITSUNE_PALETTE_FILE="$COLOR_PALETTE_FILE" ./scripts/wallpaper-accent-watcher.sh "$mon" "$color_file" "$color_poll" >/tmp/kitsune-colorwatch.log 2>&1 &
   echo $! > "$PID_COLOR"
 }
 
@@ -118,7 +118,7 @@ refresh_color_once() {
   local mon="$1"
   local color_file="$2"
   local color_poll="$3"
-  ./scripts/wallpaper-accent-watcher.sh "$mon" "$color_file" "$color_poll" --once >/tmp/kitsune-colorwatch.log 2>&1 || true
+  KITSUNE_PALETTE_FILE="$COLOR_PALETTE_FILE" ./scripts/wallpaper-accent-watcher.sh "$mon" "$color_file" "$color_poll" --once >/tmp/kitsune-colorwatch.log 2>&1 || true
 }
 
 if ! command -v hyprctl >/dev/null 2>&1; then
@@ -135,6 +135,7 @@ CHECK_SECONDS="$(cfg_get monitor_fallback_check_seconds 2)"
 FIFO_VIDEO="$(cfg_get fifo_video /tmp/kitsune-spectrum.rgba)"
 DYNAMIC_COLOR="$(cfg_get dynamic_color 0)"
 COLOR_FILE="$(cfg_get color_source_file /tmp/kitsune-accent.hex)"
+COLOR_PALETTE_FILE="$(cfg_get color_palette_file /tmp/kitsune-accent.palette)"
 COLOR_POLL="$(cfg_get color_poll_seconds 2)"
 
 if ! [[ "$CHECK_SECONDS" =~ ^[0-9]+$ ]] || [[ "$CHECK_SECONDS" -lt 1 ]]; then

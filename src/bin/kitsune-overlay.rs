@@ -54,6 +54,25 @@ enum RenderStyle {
     Polygon,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ColorMode {
+    Static,
+    AccentLight,
+    AccentMid,
+    AccentDark,
+}
+
+impl ColorMode {
+    fn from_str(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "accent_light" | "light" => Self::AccentLight,
+            "accent_dark" | "dark" => Self::AccentDark,
+            "accent_mid" | "mid" => Self::AccentMid,
+            _ => Self::Static,
+        }
+    }
+}
+
 impl RenderStyle {
     fn from_str(raw: &str) -> Self {
         match raw.trim().to_ascii_lowercase().as_str() {
@@ -97,6 +116,9 @@ struct Config {
     fps: u32,
     color: RgbaColor,
     color2: RgbaColor,
+    color_mode: ColorMode,
+    color2_mode: ColorMode,
+    color_palette_file: PathBuf,
     bar_width: f64,
     bar_gap: f64,
     bar_corner_radius: f64,
@@ -120,8 +142,39 @@ struct GroupLayer {
     enabled: bool,
     mode: VisualMode,
     style: RenderStyle,
-    color: RgbaColor,
+    static_color: RgbaColor,
+    color_mode: ColorMode,
     alpha: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Palette {
+    accent_light: RgbaColor,
+    accent_mid: RgbaColor,
+    accent_dark: RgbaColor,
+}
+
+impl Palette {
+    fn from_base(base: RgbaColor, alt: RgbaColor) -> Self {
+        Self {
+            accent_light: vivid_color(gradient_color(base, alt, 0.55)),
+            accent_mid: vivid_color(gradient_color(base, alt, 0.25)),
+            accent_dark: vivid_color(gradient_color(
+                base,
+                RgbaColor::from_hex_with_alpha("#101820", base.a),
+                0.65,
+            )),
+        }
+    }
+
+    fn resolve(&self, mode: ColorMode, fallback: RgbaColor) -> RgbaColor {
+        match mode {
+            ColorMode::Static => fallback,
+            ColorMode::AccentLight => self.accent_light,
+            ColorMode::AccentMid => self.accent_mid,
+            ColorMode::AccentDark => self.accent_dark,
+        }
+    }
 }
 
 fn install_css() {
@@ -257,6 +310,20 @@ fn parse_config(path: &Path) -> Config {
         map.get("color2").map(String::as_str).unwrap_or("#19f0ff"),
         0.92,
     );
+    let dynamic_color = map
+        .get("dynamic_color")
+        .map(|v| parse_boolish(v))
+        .unwrap_or(false);
+    let color_mode = map
+        .get("color_mode")
+        .map(|v| ColorMode::from_str(v))
+        .unwrap_or(if dynamic_color { ColorMode::AccentMid } else { ColorMode::Static });
+    let color2_mode = map
+        .get("color2_mode")
+        .map(|v| ColorMode::from_str(v))
+        .unwrap_or(if dynamic_color { ColorMode::AccentLight } else { ColorMode::Static });
+    let color_palette_file =
+        PathBuf::from(cfg_get_string(&map, "color_palette_file", "/tmp/kitsune-accent.palette"));
     let bar_width = map
         .get("bar_width")
         .and_then(|v| v.parse::<f64>().ok())
@@ -308,6 +375,9 @@ fn parse_config(path: &Path) -> Config {
         fps,
         color,
         color2,
+        color_mode,
+        color2_mode,
+        color_palette_file,
         bar_width,
         bar_gap,
         bar_corner_radius,
@@ -367,19 +437,68 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
         let enabled = parse_boolish(parts[0]);
         let mode = VisualMode::from_str(parts[1]);
         let style = RenderStyle::from_str(parts[2]);
-        let color = RgbaColor::from_hex_with_alpha(parts[4], parts[5].parse::<f64>().unwrap_or(1.0));
         let alpha = parts[5].parse::<f64>().unwrap_or(1.0).clamp(0.0, 1.0);
+        let mut color_mode = ColorMode::Static;
+        if matches!(
+            parts[4].to_ascii_lowercase().as_str(),
+            "accent_light" | "accent_mid" | "accent_dark" | "static"
+        ) {
+            color_mode = ColorMode::from_str(parts[4]);
+        }
+        for extra in parts.iter().skip(6) {
+            if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("color_mode")
+            {
+                color_mode = ColorMode::from_str(value);
+            }
+        }
+        let static_color = if color_mode == ColorMode::Static {
+            RgbaColor::from_hex_with_alpha(parts[4], alpha)
+        } else {
+            RgbaColor::from_hex_with_alpha("#ffffff", alpha)
+        };
         let _profile = parts[3];
         let _resolved_group_path = resolve_group_path(config_path, &group_path.to_string_lossy());
         layers.push(GroupLayer {
             enabled,
             mode,
             style,
-            color,
+            static_color,
+            color_mode,
             alpha,
         });
     }
     layers
+}
+
+fn load_palette(path: &Path, fallback: Palette) -> Palette {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return fallback;
+    };
+    let mut light = None;
+    let mut mid = None;
+    let mut dark = None;
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        let parsed = RgbaColor::from_hex_with_alpha(value.trim(), 0.96);
+        match key.trim() {
+            "accent_light" => light = Some(parsed),
+            "accent_mid" => mid = Some(parsed),
+            "accent_dark" => dark = Some(parsed),
+            _ => {}
+        }
+    }
+    Palette {
+        accent_light: light.unwrap_or(fallback.accent_light),
+        accent_mid: mid.unwrap_or(fallback.accent_mid),
+        accent_dark: dark.unwrap_or(fallback.accent_dark),
+    }
 }
 
 fn monitor_by_name(name: &str) -> Option<gdk::Monitor> {
@@ -552,6 +671,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     drawing_area.set_content_height(cfg.height);
     let color = cfg.color;
     let color2 = cfg.color2;
+    let default_palette = Palette::from_base(color, color2);
+    let palette = Arc::new(Mutex::new(load_palette(&cfg.color_palette_file, default_palette)));
     let bar_width = cfg.bar_width;
     let bar_gap = cfg.bar_gap;
     let bar_corner_radius = cfg.bar_corner_radius;
@@ -563,6 +684,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let single_mode = cfg.visual_mode;
     let single_bars_style = cfg.bars_style;
     let single_ring_style = cfg.ring_style;
+    let single_color_mode = cfg.color_mode;
+    let single_color2_mode = cfg.color2_mode;
     let config_path = cfg.config_path.clone();
     let group_path = resolve_group_path(&config_path, &cfg.group_file.to_string_lossy());
     let group_layers = Arc::new(Mutex::new(parse_group_layers(&config_path, &group_path)));
@@ -570,6 +693,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let group_last_mtime = Arc::new(Mutex::new(fs::metadata(&group_path).and_then(|m| m.modified()).ok()));
     let group_last_mtime_for_timer = Arc::clone(&group_last_mtime);
     let group_poll_ms = cfg.group_poll_ms;
+    let palette_file = cfg.color_palette_file.clone();
+    let palette_for_timer = Arc::clone(&palette);
 
     drawing_area.set_draw_func(move |_, ctx, width, height| {
         ctx.set_source_rgba(0.0, 0.0, 0.0, 0.0);
@@ -579,10 +704,12 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
         if values.is_empty() {
             return;
         }
+        let current_palette = palette.lock().map(|v| *v).unwrap_or(default_palette);
 
         if spectrum_mode == SpectrumMode::Group {
             let layers = group_layers.lock().map(|v| v.clone()).unwrap_or_default();
             for layer in layers.iter().filter(|layer| layer.enabled) {
+                let base_color = current_palette.resolve(layer.color_mode, layer.static_color);
                 draw_visual_layer(
                     ctx,
                     width as f64,
@@ -590,8 +717,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     &values,
                     layer.mode,
                     layer.style,
-                    layer.color,
-                    gradient_color(layer.color, color2, 0.35),
+                    base_color,
+                    gradient_color(base_color, current_palette.accent_light, 0.35),
                     bar_width,
                     bar_gap,
                     bar_corner_radius,
@@ -605,6 +732,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             return;
         }
 
+        let single_color = current_palette.resolve(single_color_mode, color);
+        let single_color2 = current_palette.resolve(single_color2_mode, color2);
         let style = match single_mode {
             VisualMode::Ring => single_ring_style,
             VisualMode::Bars => single_bars_style,
@@ -616,8 +745,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             &values,
             single_mode,
             style,
-            color,
-            color2,
+            single_color,
+            single_color2,
             bar_width,
             bar_gap,
             bar_corner_radius,
@@ -658,6 +787,10 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             if let Some(area) = area_weak_reload.upgrade() {
                 area.queue_draw();
             }
+        }
+        let loaded_palette = load_palette(&palette_file, default_palette);
+        if let Ok(mut target) = palette_for_timer.lock() {
+            *target = loaded_palette;
         }
         glib::ControlFlow::Continue
     });

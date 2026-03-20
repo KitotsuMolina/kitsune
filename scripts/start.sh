@@ -36,6 +36,7 @@ FIFO_VIDEO="$(cfg_get fifo_video /tmp/kitsune-spectrum.rgba)"
 FIFO_CAVA="$(cfg_get fifo_cava /tmp/cava-rs.raw)"
 DYNAMIC_COLOR="$(cfg_get dynamic_color 0)"
 COLOR_FILE="$(cfg_get color_source_file /tmp/kitsune-accent.hex)"
+COLOR_PALETTE_FILE="$(cfg_get color_palette_file /tmp/kitsune-accent.palette)"
 COLOR_POLL="$(cfg_get color_poll_seconds 2)"
 BASE_COLOR="$(cfg_get color '#ff2f8f')"
 OUTPUT_TARGET="$(cfg_get output_target layer-shell)"
@@ -117,10 +118,15 @@ echo $! > "$PID_LAYER"
 
 if [[ "$DYNAMIC_COLOR" == "1" ]]; then
   printf '%s\n' "$BASE_COLOR" > "$COLOR_FILE"
+  cat > "$COLOR_PALETTE_FILE" <<EOF
+accent_light=$BASE_COLOR
+accent_mid=$BASE_COLOR
+accent_dark=$BASE_COLOR
+EOF
   if { command -v kitowall >/dev/null 2>&1 || command -v swww >/dev/null 2>&1 || command -v hyprctl >/dev/null 2>&1 || [[ -f "$HOME/.config/hypr/hyprpaper.conf" ]]; } \
     && { command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; }; then
     echo "[i] Resolving initial accent color from wallpaper..."
-    ./scripts/wallpaper-accent-watcher.sh "$TARGET_MONITOR" "$COLOR_FILE" "$COLOR_POLL" --once >"${LOG_PREFIX}-colorwatch.log" 2>&1 || true
+    KITSUNE_PALETTE_FILE="$COLOR_PALETTE_FILE" ./scripts/wallpaper-accent-watcher.sh "$TARGET_MONITOR" "$COLOR_FILE" "$COLOR_POLL" --once >"${LOG_PREFIX}-colorwatch.log" 2>&1 || true
   fi
 fi
 
@@ -128,7 +134,7 @@ if [[ "$DYNAMIC_COLOR" == "1" ]]; then
   if { command -v kitowall >/dev/null 2>&1 || command -v swww >/dev/null 2>&1 || command -v hyprctl >/dev/null 2>&1 || [[ -f "$HOME/.config/hypr/hyprpaper.conf" ]]; } \
     && { command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; }; then
     echo "[i] Starting wallpaper color watcher..."
-    ./scripts/wallpaper-accent-watcher.sh "$TARGET_MONITOR" "$COLOR_FILE" "$COLOR_POLL" >"${LOG_PREFIX}-colorwatch.log" 2>&1 &
+    KITSUNE_PALETTE_FILE="$COLOR_PALETTE_FILE" ./scripts/wallpaper-accent-watcher.sh "$TARGET_MONITOR" "$COLOR_FILE" "$COLOR_POLL" >"${LOG_PREFIX}-colorwatch.log" 2>&1 &
     echo $! > "$PID_COLOR"
   else
     echo "[!] dynamic_color=1 pero faltan fuentes de wallpaper (kitowall/swww/hyprctl/hyprpaper.conf) o magick/convert; saltando watcher"
