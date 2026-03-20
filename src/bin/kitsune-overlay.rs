@@ -48,6 +48,7 @@ enum RenderStyle {
     Bars,
     BarsFill,
     Waves,
+    WavesKwy,
     WavesFill,
     Dots,
     Triangle,
@@ -78,6 +79,7 @@ impl RenderStyle {
         match raw.trim().to_ascii_lowercase().as_str() {
             "bars_fill" | "bars-fill" => Self::BarsFill,
             "waves" | "wave" => Self::Waves,
+            "waves_kwy" | "waves-kwy" | "kwy_waves" | "kwy-waves" | "ribbon" => Self::WavesKwy,
             "waves_fill" | "waves-fill" | "wavefill" => Self::WavesFill,
             "dots" | "dot" => Self::Dots,
             "triangle" => Self::Triangle,
@@ -122,9 +124,20 @@ struct Config {
     bar_width: f64,
     bar_gap: f64,
     bar_corner_radius: f64,
+    segmented_bars: bool,
+    segment_length: f64,
+    segment_gap: f64,
     line_max_height_ratio: f64,
     ring_inner_ratio: f64,
     ring_length_ratio: f64,
+    bars_wave_thickness: f64,
+    bars_dot_radius: f64,
+    ring_wave_thickness: f64,
+    ring_dot_radius: f64,
+    bars_wave_roundness: f64,
+    ring_wave_roundness: f64,
+    ring_fill_softness: f64,
+    ring_fill_overlap_px: f64,
     layout: OverlayLayout,
     polygon_sides: usize,
     position: String,
@@ -339,6 +352,20 @@ fn parse_config(path: &Path) -> Config {
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(4.0)
         .clamp(0.0, 64.0);
+    let segmented_bars = map
+        .get("segmented_bars")
+        .map(|v| parse_boolish(v))
+        .unwrap_or(false);
+    let segment_length = map
+        .get("segment_length")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(10.0)
+        .clamp(1.0, 96.0);
+    let segment_gap = map
+        .get("segment_gap")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(4.0)
+        .clamp(0.0, 48.0);
     let line_max_height_ratio = map
         .get("line_max_height_ratio")
         .and_then(|v| v.parse::<f64>().ok())
@@ -354,6 +381,46 @@ fn parse_config(path: &Path) -> Config {
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.22)
         .clamp(0.05, 0.60);
+    let bars_wave_thickness = map
+        .get("bars_wave_thickness")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(3.0)
+        .clamp(1.0, 24.0);
+    let bars_dot_radius = map
+        .get("bars_dot_radius")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(2.0)
+        .clamp(1.0, 24.0);
+    let ring_wave_thickness = map
+        .get("ring_wave_thickness")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(2.0)
+        .clamp(1.0, 24.0);
+    let ring_dot_radius = map
+        .get("ring_dot_radius")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(2.0)
+        .clamp(1.0, 24.0);
+    let bars_wave_roundness = map
+        .get("bars_wave_roundness")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.70)
+        .clamp(0.05, 1.0);
+    let ring_wave_roundness = map
+        .get("ring_wave_roundness")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.65)
+        .clamp(0.05, 1.0);
+    let ring_fill_softness = map
+        .get("ring_fill_softness")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.35)
+        .clamp(0.0, 1.0);
+    let ring_fill_overlap_px = map
+        .get("ring_fill_overlap_px")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(1.8)
+        .clamp(0.0, 32.0);
     let polygon_sides = map
         .get("polygon_sides")
         .and_then(|v| v.parse::<usize>().ok())
@@ -381,9 +448,20 @@ fn parse_config(path: &Path) -> Config {
         bar_width,
         bar_gap,
         bar_corner_radius,
+        segmented_bars,
+        segment_length,
+        segment_gap,
         line_max_height_ratio,
         ring_inner_ratio,
         ring_length_ratio,
+        bars_wave_thickness,
+        bars_dot_radius,
+        ring_wave_thickness,
+        ring_dot_radius,
+        bars_wave_roundness,
+        ring_wave_roundness,
+        ring_fill_softness,
+        ring_fill_overlap_px,
         layout: OverlayLayout::from_mode_style(&mode_raw, &bars_style_raw),
         polygon_sides,
         position,
@@ -654,13 +732,219 @@ fn spawn_cava_stream(bar_count: usize, framerate: u32) -> std::io::Result<Arc<Mu
 }
 
 fn draw_round_bar(ctx: &gtk::cairo::Context, x: f64, y: f64, width: f64, height: f64, radius: f64) {
-    let radius = radius.min(width * 0.5).min(height * 0.5);
+    let x = (x * 2.0).round() * 0.5;
+    let y = (y * 2.0).round() * 0.5;
+    let width = (width * 2.0).round() * 0.5;
+    let height = (height * 2.0).round() * 0.5;
+    let radius = radius.max(0.0).min(width * 0.5).min(height * 0.5);
+    if radius <= 0.0 {
+        ctx.rectangle(x, y, width, height);
+        return;
+    }
     ctx.new_sub_path();
+    ctx.move_to(x + radius, y);
+    ctx.line_to(x + width - radius, y);
     ctx.arc(x + width - radius, y + radius, radius, -PI / 2.0, 0.0);
+    ctx.line_to(x + width, y + height - radius);
     ctx.arc(x + width - radius, y + height - radius, radius, 0.0, PI / 2.0);
+    ctx.line_to(x + radius, y + height);
     ctx.arc(x + radius, y + height - radius, radius, PI / 2.0, PI);
+    ctx.line_to(x, y + radius);
     ctx.arc(x + radius, y + radius, radius, PI, 3.0 * PI / 2.0);
     ctx.close_path();
+}
+
+#[derive(Clone, Copy)]
+enum BarOrientation {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Clone, Copy)]
+struct BarRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Clone, Copy)]
+struct BarStyle {
+    corner_radius: f64,
+    segmented: bool,
+    segment_length: f64,
+    segment_gap: f64,
+}
+
+fn for_each_segment_span(
+    total_length: f64,
+    segment_length: f64,
+    segment_gap: f64,
+    from_start: bool,
+    mut segment: impl FnMut(f64, f64),
+) {
+    let total_length = total_length.max(0.0);
+    if total_length <= 0.0 {
+        return;
+    }
+    let segment_length = segment_length.max(1.0);
+    let segment_gap = segment_gap.max(0.0);
+    let step = segment_length + segment_gap;
+
+    if from_start {
+        let mut cursor = 0.0;
+        while cursor < total_length {
+            let length = (total_length - cursor).min(segment_length);
+            if length <= 0.0 {
+                break;
+            }
+            segment(cursor, length);
+            cursor += step;
+        }
+        return;
+    }
+
+    let mut cursor = total_length;
+    while cursor > 0.0 {
+        let start = (cursor - segment_length).max(0.0);
+        let length = cursor - start;
+        if length <= 0.0 {
+            break;
+        }
+        segment(start, length);
+        if start <= 0.0 {
+            break;
+        }
+        cursor = (start - segment_gap).max(0.0);
+    }
+}
+
+fn append_bar_path(
+    ctx: &gtk::cairo::Context,
+    rect: BarRect,
+    style: BarStyle,
+    orientation: BarOrientation,
+    forward: bool,
+) {
+    if style.segmented {
+        match orientation {
+            BarOrientation::Horizontal => {
+                for_each_segment_span(
+                    rect.height,
+                    style.segment_length,
+                    style.segment_gap,
+                    forward,
+                    |offset, len| {
+                        draw_round_bar(ctx, rect.x, rect.y + offset, rect.width, len, style.corner_radius);
+                    },
+                );
+            }
+            BarOrientation::Vertical => {
+                for_each_segment_span(
+                    rect.width,
+                    style.segment_length,
+                    style.segment_gap,
+                    forward,
+                    |offset, len| {
+                        draw_round_bar(ctx, rect.x + offset, rect.y, len, rect.height, style.corner_radius);
+                    },
+                );
+            }
+        }
+        return;
+    }
+
+    draw_round_bar(ctx, rect.x, rect.y, rect.width, rect.height, style.corner_radius);
+}
+
+fn append_directed_bar_path(
+    ctx: &gtk::cairo::Context,
+    center_x: f64,
+    center_y: f64,
+    angle: f64,
+    length: f64,
+    thickness: f64,
+    style: BarStyle,
+) {
+    ctx.save().ok();
+    ctx.translate(center_x, center_y);
+    ctx.rotate(angle);
+    append_bar_path(
+        ctx,
+        BarRect {
+            x: 0.0,
+            y: -(thickness * 0.5),
+            width: length.max(2.0),
+            height: thickness.max(1.0),
+        },
+        style,
+        BarOrientation::Vertical,
+        true,
+    );
+    ctx.restore().ok();
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RadialDistribution {
+    first_angle: f64,
+    angle_step: f64,
+    tangential_thickness: f64,
+}
+
+fn radial_distribution(
+    count: usize,
+    inner_radius: f64,
+    thickness: f64,
+    gap: f64,
+    start_angle: f64,
+    arc_radians: f64,
+) -> Option<RadialDistribution> {
+    if count == 0 {
+        return None;
+    }
+    let inner_radius = inner_radius.max(1.0);
+    let arc_magnitude = (PI * 2.0_f64).min(arc_radians.abs().max(0.001));
+    let full_circle = (arc_magnitude - (PI * 2.0)).abs() < 0.001;
+    let gap_count = if count <= 1 {
+        0
+    } else if full_circle {
+        count
+    } else {
+        count.saturating_sub(1)
+    } as f64;
+    let total_nominal = (count as f64 * thickness.max(1.0)) + (gap_count * gap.max(0.0));
+    let available_arc_length = arc_magnitude * inner_radius;
+    let scale = if total_nominal > available_arc_length {
+        available_arc_length / total_nominal
+    } else {
+        1.0
+    };
+    let tangential_thickness = (thickness * scale).max(1.0);
+    let base_gap = gap.max(0.0) * scale;
+    let occupied_length = (count as f64 * tangential_thickness) + (gap_count * base_gap);
+    let extra_gap = if gap_count > 0.0 {
+        (available_arc_length - occupied_length).max(0.0) / gap_count
+    } else {
+        0.0
+    };
+    let effective_gap = base_gap + extra_gap;
+    let angle_step = if count <= 1 {
+        0.0
+    } else {
+        (tangential_thickness + effective_gap) / inner_radius
+    };
+    let first_angle = if full_circle {
+        start_angle
+    } else if count == 1 {
+        start_angle + (arc_radians * 0.5)
+    } else {
+        start_angle + (tangential_thickness * 0.5 / inner_radius)
+    };
+    Some(RadialDistribution {
+        first_angle,
+        angle_step,
+        tangential_thickness,
+    })
 }
 
 fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::DrawingArea {
@@ -676,6 +960,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let bar_width = cfg.bar_width;
     let bar_gap = cfg.bar_gap;
     let bar_corner_radius = cfg.bar_corner_radius;
+    let segmented_bars = cfg.segmented_bars;
+    let segment_length = cfg.segment_length;
+    let segment_gap = cfg.segment_gap;
     let line_max_height_ratio = cfg.line_max_height_ratio;
     let ring_inner_ratio = cfg.ring_inner_ratio;
     let ring_length_ratio = cfg.ring_length_ratio;
@@ -722,6 +1009,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     bar_width,
                     bar_gap,
                     bar_corner_radius,
+                    segmented_bars,
+                    segment_length,
+                    segment_gap,
                     line_max_height_ratio,
                     ring_inner_ratio,
                     ring_length_ratio,
@@ -750,6 +1040,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             bar_width,
             bar_gap,
             bar_corner_radius,
+            segmented_bars,
+            segment_length,
+            segment_gap,
             line_max_height_ratio,
             ring_inner_ratio,
             ring_length_ratio,
@@ -819,6 +1112,49 @@ fn vivid_color(mut color: RgbaColor) -> RgbaColor {
     color
 }
 
+fn stroke_smooth_path(
+    ctx: &gtk::cairo::Context,
+    points: &[(f64, f64)],
+    closed: bool,
+    line_width: f64,
+    roundness: f64,
+) {
+    if points.is_empty() {
+        return;
+    }
+    let first = points[0];
+    ctx.new_path();
+    ctx.move_to(first.0, first.1);
+
+    if points.len() == 1 {
+        ctx.set_line_width(line_width);
+        let _ = ctx.stroke();
+        return;
+    }
+
+    let roundness = roundness.clamp(0.05, 1.0);
+    for index in 1..points.len() {
+        let (prev_x, prev_y) = points[index - 1];
+        let (x, y) = points[index];
+        let dx = x - prev_x;
+        let ctrl_dx = dx * 0.5 * roundness;
+        ctx.curve_to(prev_x + ctrl_dx, prev_y, x - ctrl_dx, y, x, y);
+    }
+
+    if closed {
+        let (last_x, last_y) = points[points.len() - 1];
+        let dx = first.0 - last_x;
+        let ctrl_dx = dx * 0.5 * roundness;
+        ctx.curve_to(last_x + ctrl_dx, last_y, first.0 - ctrl_dx, first.1, first.0, first.1);
+        ctx.close_path();
+    }
+
+    ctx.set_line_cap(gtk::cairo::LineCap::Round);
+    ctx.set_line_join(gtk::cairo::LineJoin::Round);
+    ctx.set_line_width(line_width);
+    let _ = ctx.stroke();
+}
+
 fn draw_line_layout(
     ctx: &gtk::cairo::Context,
     width: f64,
@@ -830,6 +1166,12 @@ fn draw_line_layout(
     bar_thickness: f64,
     gap: f64,
     corner_radius: f64,
+    segmented_bars: bool,
+    segment_length: f64,
+    segment_gap: f64,
+    wave_thickness: f64,
+    dot_radius: f64,
+    wave_roundness: f64,
     max_height_ratio: f64,
     alpha_scale: f64,
 ) {
@@ -845,7 +1187,14 @@ fn draw_line_layout(
     let rendered_total = (count * bar_width) + ((count - 1.0).max(0.0) * gap_width);
     let start_x = (width - rendered_total).max(0.0) * 0.5;
     let max_bar_height = (height * max_height_ratio).max(2.0);
+    let bar_style = BarStyle {
+        corner_radius,
+        segmented: segmented_bars,
+        segment_length,
+        segment_gap,
+    };
     let mut wave_points: Vec<(f64, f64)> = Vec::with_capacity(values.len());
+    let mut wave_base_y = height;
     for (index, value) in values.iter().enumerate() {
         let normalized = value.clamp(0.0, 1.0);
         let bar_height = (max_bar_height * normalized).max(2.0);
@@ -856,35 +1205,35 @@ fn draw_line_layout(
         ctx.set_source_rgba(c.r, c.g, c.b, effective_alpha);
         match style {
             RenderStyle::Dots => {
-                let radius = (bar_width * 0.44).max(3.0);
+                let radius = dot_radius.max((bar_width * 0.32).max(2.0));
                 ctx.arc(x + (bar_width * 0.5), y + radius, radius, 0.0, PI * 2.0);
                 let _ = ctx.fill();
             }
-            RenderStyle::Waves | RenderStyle::WavesFill => {
+            RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesFill => {
+                wave_base_y = wave_base_y.min(y + (bar_height * 0.46));
                 wave_points.push((x + (bar_width * 0.5), y));
             }
             _ => {
-                draw_round_bar(
+                append_bar_path(
                     ctx,
-                    x,
-                    y,
-                    bar_width,
-                    bar_height,
-                    corner_radius.min(bar_width * 0.5).min(bar_height * 0.5),
+                    BarRect {
+                        x,
+                        y,
+                        width: bar_width,
+                        height: bar_height,
+                    },
+                    BarStyle {
+                        corner_radius: bar_style.corner_radius.min(bar_width * 0.5).min(bar_height * 0.5),
+                        ..bar_style
+                    },
+                    BarOrientation::Horizontal,
+                    false,
                 );
                 let _ = ctx.fill();
             }
         }
     }
-    if matches!(style, RenderStyle::Waves | RenderStyle::WavesFill) && !wave_points.is_empty() {
-        ctx.new_path();
-        for (idx, (x, y)) in wave_points.iter().enumerate() {
-            if idx == 0 {
-                ctx.move_to(*x, *y);
-            } else {
-                ctx.line_to(*x, *y);
-            }
-        }
+    if matches!(style, RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesFill) && !wave_points.is_empty() {
         let wave_color = vivid_color(color2);
         ctx.set_source_rgba(
             wave_color.r,
@@ -892,14 +1241,32 @@ fn draw_line_layout(
             wave_color.b,
             (wave_color.a * alpha_scale).clamp(0.0, 1.0),
         );
-        ctx.set_line_width((bar_width * 0.9).max(3.0));
-        if style == RenderStyle::WavesFill {
-            ctx.line_to(width, height);
-            ctx.line_to(0.0, height);
+        if style == RenderStyle::WavesKwy {
+            stroke_smooth_path(ctx, &wave_points, false, wave_thickness.max((bar_width * 1.05).max(3.5)), wave_roundness.max(0.82));
+        } else if style == RenderStyle::WavesFill {
+            ctx.new_path();
+            for (idx, (x, y)) in wave_points.iter().enumerate() {
+                if idx == 0 {
+                    ctx.move_to(*x, *y);
+                } else {
+                    ctx.line_to(*x, *y);
+                }
+            }
+            let fill_y = wave_base_y.max(height * 0.62);
+            ctx.line_to(width, fill_y);
+            ctx.line_to(0.0, fill_y);
             ctx.close_path();
             let _ = ctx.fill();
         } else {
-            let _ = ctx.stroke();
+            ctx.new_path();
+            for (idx, (x, y)) in wave_points.iter().enumerate() {
+                if idx == 0 {
+                    ctx.move_to(*x, *y);
+                } else {
+                    ctx.line_to(*x, *y);
+                }
+            }
+            stroke_smooth_path(ctx, &wave_points, false, wave_thickness.max((bar_width * 0.75).max(2.5)), wave_roundness);
         }
     }
 }
@@ -913,17 +1280,59 @@ fn draw_radial_layout(
     color2: RgbaColor,
     style: RenderStyle,
     bar_thickness: f64,
+    bar_gap: f64,
+    corner_radius: f64,
+    segmented_bars: bool,
+    segment_length: f64,
+    segment_gap: f64,
     inner_ratio: f64,
     length_ratio: f64,
     alpha_scale: f64,
 ) {
+    if style == RenderStyle::WavesKwy {
+        let cx = width * 0.5;
+        let cy = height * 0.5;
+        let inner = width.min(height) * inner_ratio;
+        let span = PI * 2.0;
+        let step = span / values.len().max(1) as f64;
+        let mut wave_points: Vec<(f64, f64)> = Vec::with_capacity(values.len());
+        for (index, value) in values.iter().enumerate() {
+            let angle = -PI / 2.0 + (index as f64 * step);
+            let len = (width.min(height) * length_ratio) * value.clamp(0.0, 1.0);
+            wave_points.push((cx + angle.cos() * (inner + len), cy + angle.sin() * (inner + len)));
+        }
+        let wave_color = vivid_color(gradient_color(color, color2, 0.58));
+        ctx.set_source_rgba(
+            wave_color.r,
+            wave_color.g,
+            wave_color.b,
+            (wave_color.a * alpha_scale).clamp(0.0, 1.0),
+        );
+        stroke_smooth_path(ctx, &wave_points, true, (bar_thickness * 1.08).max(3.5));
+        return;
+    }
     let cx = width * 0.5;
     let cy = height * 0.5;
     let inner = width.min(height) * inner_ratio;
     let span = PI * 2.0;
-    let step = span / values.len().max(1) as f64;
+    let Some(distribution) = radial_distribution(
+        values.len(),
+        inner,
+        bar_thickness,
+        bar_gap.max((bar_thickness * 0.42).max(1.0)),
+        -PI / 2.0,
+        span,
+    ) else {
+        return;
+    };
+    let bar_style = BarStyle {
+        corner_radius,
+        segmented: segmented_bars,
+        segment_length,
+        segment_gap,
+    };
     for (index, value) in values.iter().enumerate() {
-        let angle = -PI / 2.0 + (index as f64 * step);
+        let angle = distribution.first_angle + (index as f64 * distribution.angle_step);
         let len = (width.min(height) * length_ratio) * value.clamp(0.0, 1.0);
         let c = vivid_color(gradient_color(color, color2, index as f64 / values.len().max(1) as f64));
         ctx.set_source_rgba(c.r, c.g, c.b, (c.a * alpha_scale).clamp(0.0, 1.0));
@@ -935,10 +1344,21 @@ fn draw_radial_layout(
                 let _ = ctx.fill();
             }
             _ => {
-                ctx.set_line_width(bar_thickness.max(2.0));
-                ctx.move_to(cx + angle.cos() * inner, cy + angle.sin() * inner);
-                ctx.line_to(cx + angle.cos() * (inner + len), cy + angle.sin() * (inner + len));
-                let _ = ctx.stroke();
+                append_directed_bar_path(
+                    ctx,
+                    cx + angle.cos() * inner,
+                    cy + angle.sin() * inner,
+                    angle,
+                    len,
+                    distribution.tangential_thickness,
+                    BarStyle {
+                        corner_radius: bar_style
+                            .corner_radius
+                            .min(distribution.tangential_thickness * 0.45),
+                        ..bar_style
+                    },
+                );
+                let _ = ctx.fill();
             }
         }
     }
@@ -953,6 +1373,25 @@ fn polygon_points(cx: f64, cy: f64, radius: f64, sides: usize) -> Vec<(f64, f64)
     points
 }
 
+fn point_distance(a: (f64, f64), b: (f64, f64)) -> f64 {
+    ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
+}
+
+fn polygon_point_and_normal(vertices: &[(f64, f64)], distance: f64) -> ((f64, f64), (f64, f64)) {
+    let edge_length = point_distance(vertices[0], vertices[1]).max(1.0);
+    let edge_index = ((distance / edge_length).floor() as usize) % vertices.len();
+    let edge_start = vertices[edge_index];
+    let edge_end = vertices[(edge_index + 1) % vertices.len()];
+    let along = (distance % edge_length) / edge_length;
+    let point = (
+        edge_start.0 + ((edge_end.0 - edge_start.0) * along),
+        edge_start.1 + ((edge_end.1 - edge_start.1) * along),
+    );
+    let midpoint = ((edge_start.0 + edge_end.0) * 0.5, (edge_start.1 + edge_end.1) * 0.5);
+    let length = (midpoint.0.powi(2) + midpoint.1.powi(2)).sqrt().max(1.0);
+    (point, (midpoint.0 / length, midpoint.1 / length))
+}
+
 fn draw_polygon_layout(
     ctx: &gtk::cairo::Context,
     width: f64,
@@ -961,42 +1400,62 @@ fn draw_polygon_layout(
     color: RgbaColor,
     color2: RgbaColor,
     bar_thickness: f64,
+    bar_gap: f64,
+    corner_radius: f64,
+    segmented_bars: bool,
+    segment_length: f64,
+    segment_gap: f64,
     sides: usize,
     alpha_scale: f64,
 ) {
     let cx = width * 0.5;
     let cy = height * 0.5;
     let radius = width.min(height) * 0.28;
-    let points = polygon_points(cx, cy, radius, sides.max(3));
-    let bars_per_side = (values.len() / sides.max(1)).max(1);
+    let local_points = polygon_points(0.0, 0.0, radius, sides.max(3));
+    let edge_length = point_distance(local_points[0], local_points[1]).max(1.0);
+    let perimeter = edge_length * local_points.len() as f64;
+    let gap_count = if values.len() <= 1 { 0 } else { values.len() } as f64;
+    let total_nominal = (values.len() as f64 * bar_thickness.max(1.0)) + (gap_count * bar_gap.max(0.0));
+    let scale = if total_nominal > perimeter {
+        perimeter / total_nominal
+    } else {
+        1.0
+    };
+    let tangential_thickness = (bar_thickness * scale).max(1.0);
+    let base_gap = bar_gap.max(0.0) * scale;
+    let occupied_length = (values.len() as f64 * tangential_thickness) + (gap_count * base_gap);
+    let extra_gap = if gap_count > 0.0 {
+        (perimeter - occupied_length).max(0.0) / gap_count
+    } else {
+        0.0
+    };
+    let step_distance = tangential_thickness + base_gap + extra_gap;
+    let bar_style = BarStyle {
+        corner_radius,
+        segmented: segmented_bars,
+        segment_length,
+        segment_gap,
+    };
 
-    for side in 0..points.len() {
-        let (x1, y1) = points[side];
-        let (x2, y2) = points[(side + 1) % points.len()];
-        let dx = x2 - x1;
-        let dy = y2 - y1;
-        let nx = -dy;
-        let ny = dx;
-        let nlen = (nx * nx + ny * ny).sqrt().max(1.0);
-        let ux = nx / nlen;
-        let uy = ny / nlen;
-
-        for local in 0..bars_per_side {
-            let idx = side * bars_per_side + local;
-            if idx >= values.len() {
-                break;
-            }
-            let t = (local as f64 + 0.5) / bars_per_side as f64;
-            let bx = x1 + dx * t;
-            let by = y1 + dy * t;
-            let len = 8.0 + values[idx].clamp(0.0, 1.0) * 42.0;
-            let c = vivid_color(gradient_color(color, color2, idx as f64 / values.len().max(1) as f64));
-            ctx.set_source_rgba(c.r, c.g, c.b, (c.a * alpha_scale).clamp(0.0, 1.0));
-            ctx.set_line_width(bar_thickness.max(2.0));
-            ctx.move_to(bx, by);
-            ctx.line_to(bx + ux * len, by + uy * len);
-            let _ = ctx.stroke();
-        }
+    for (index, value) in values.iter().enumerate() {
+        let center_distance = (tangential_thickness * 0.5) + (index as f64 * step_distance);
+        let (point, normal) = polygon_point_and_normal(&local_points, center_distance % perimeter);
+        let len = 8.0 + value.clamp(0.0, 1.0) * 42.0;
+        let c = vivid_color(gradient_color(color, color2, index as f64 / values.len().max(1) as f64));
+        ctx.set_source_rgba(c.r, c.g, c.b, (c.a * alpha_scale).clamp(0.0, 1.0));
+        append_directed_bar_path(
+            ctx,
+            cx + point.0,
+            cy + point.1,
+            normal.1.atan2(normal.0),
+            len,
+            tangential_thickness,
+            BarStyle {
+                corner_radius: bar_style.corner_radius.min(tangential_thickness * 0.42),
+                ..bar_style
+            },
+        );
+        let _ = ctx.fill();
     }
 }
 
@@ -1012,6 +1471,9 @@ fn draw_visual_layer(
     bar_thickness: f64,
     bar_gap: f64,
     bar_corner_radius: f64,
+    segmented_bars: bool,
+    segment_length: f64,
+    segment_gap: f64,
     line_max_height_ratio: f64,
     ring_inner_ratio: f64,
     ring_length_ratio: f64,
@@ -1021,7 +1483,22 @@ fn draw_visual_layer(
     match mode {
         VisualMode::Bars => match style {
             RenderStyle::Triangle | RenderStyle::Polygon => {
-                draw_polygon_layout(ctx, width, height, values, color, color2, bar_thickness, polygon_sides, alpha_scale)
+                draw_polygon_layout(
+                    ctx,
+                    width,
+                    height,
+                    values,
+                    color,
+                    color2,
+                    bar_thickness,
+                    bar_gap,
+                    bar_corner_radius,
+                    segmented_bars,
+                    segment_length,
+                    segment_gap,
+                    polygon_sides,
+                    alpha_scale,
+                )
             }
             _ => draw_line_layout(
                 ctx,
@@ -1034,13 +1511,31 @@ fn draw_visual_layer(
                 bar_thickness,
                 bar_gap,
                 bar_corner_radius,
+                segmented_bars,
+                segment_length,
+                segment_gap,
                 line_max_height_ratio,
                 alpha_scale,
             ),
         },
         VisualMode::Ring => match style {
             RenderStyle::Triangle | RenderStyle::Polygon => {
-                draw_polygon_layout(ctx, width, height, values, color, color2, bar_thickness, polygon_sides, alpha_scale)
+                draw_polygon_layout(
+                    ctx,
+                    width,
+                    height,
+                    values,
+                    color,
+                    color2,
+                    bar_thickness,
+                    bar_gap,
+                    bar_corner_radius,
+                    segmented_bars,
+                    segment_length,
+                    segment_gap,
+                    polygon_sides,
+                    alpha_scale,
+                )
             }
             _ => draw_radial_layout(
                 ctx,
@@ -1051,6 +1546,11 @@ fn draw_visual_layer(
                 color2,
                 style,
                 bar_thickness,
+                bar_gap,
+                bar_corner_radius,
+                segmented_bars,
+                segment_length,
+                segment_gap,
                 ring_inner_ratio,
                 ring_length_ratio,
                 alpha_scale,

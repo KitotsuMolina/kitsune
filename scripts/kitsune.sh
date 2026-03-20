@@ -50,8 +50,8 @@ Configuracion:
   config list [--effective]
 
 Visual:
-  visual <bars|ring> <bars|bars_fill|waves|waves_fill|dots|triangle|polygon>
-  style <bars|ring> <bars|bars_fill|waves|waves_fill|dots|triangle|polygon>
+  visual <bars|ring> <bars|bars_fill|waves|waves_kwy|waves_fill|dots|triangle|polygon>
+  style <bars|ring> <bars|bars_fill|waves|waves_kwy|waves_fill|dots|triangle|polygon>
   mode <bars|ring>
   debug overlay <0|1> [--apply]
 
@@ -1732,7 +1732,7 @@ cmd_group_validate() {
     fi
 
     case "$style" in
-      bars|bars_fill|waves|waves_fill|dots|triangle|polygon) ;;
+      bars|bars_fill|waves|waves_kwy|waves_fill|dots|triangle|polygon) ;;
       *)
         echo "[x] linea $ln: style invalido '$style'"
         errors=$((errors + 1))
