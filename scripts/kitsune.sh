@@ -563,6 +563,7 @@ cmd_start() {
   cfg_set_in_file "$cfg_inst" fifo_video "/tmp/kitsune-spectrum-${id}.rgba"
   cfg_set_in_file "$cfg_inst" fifo_cava "/tmp/cava-rs-${id}.raw"
   cfg_set_in_file "$cfg_inst" color_source_file "/tmp/kitsune-accent-${id}.hex"
+  cfg_set_in_file "$cfg_inst" color_palette_file "/tmp/kitsune-accent-${id}.palette"
   cfg_set_in_file "$cfg_inst" monitor_fallback_enabled "0"
 
   if [[ -n "$target" ]]; then
@@ -1043,10 +1044,22 @@ cmd_logs() {
 }
 
 cmd_layer_status() {
-  local output_target monitor pid_state_line
+  local requested="${1:-}"
+  local output_target monitor pid_state_line log_layer pid_layer id run_pref log_pref
   output_target="$(cfg_get output_target layer-shell)"
   monitor="$(cfg_get monitor DP-1)"
-  pid_state_line="$(pid_state "$PID_LAYER")"
+  if [[ -n "$requested" ]]; then
+    monitor="$requested"
+    id="$(instance_id_from_monitor "$monitor")"
+    run_pref="$(instance_run_prefix "$id")"
+    log_pref="$(instance_log_prefix "$id")"
+    pid_layer="${run_pref}/layer.pid"
+    log_layer="${log_pref}-layer.log"
+  else
+    pid_layer="$PID_LAYER"
+    log_layer="$LOG_LAYER"
+  fi
+  pid_state_line="$(pid_state "$pid_layer")"
 
   echo "Layer status:"
   echo "  output_target=$output_target"
@@ -1058,17 +1071,17 @@ cmd_layer_status() {
     *) echo "  layer_pid=missing" ;;
   esac
 
-  if [[ ! -f "$LOG_LAYER" ]]; then
-    echo "  layer_log=$LOG_LAYER (missing)"
+  if [[ ! -f "$log_layer" ]]; then
+    echo "  layer_log=$log_layer (missing)"
     return 0
   fi
 
-  echo "  overlay_log=$LOG_LAYER"
+  echo "  overlay_log=$log_layer"
   local selected fallback configured last_err
-  selected="$(grep -E '\\[(layer|overlay)\\].*monitor=' "$LOG_LAYER" | tail -n1 || true)"
-  fallback="$(grep -F "[layer] monitor '" "$LOG_LAYER" | grep -F 'not found; using compositor default output' | tail -n1 || true)"
-  configured="$(grep -E '\\[(layer|overlay)\\].*(configured surface|direct gtk4-layer-shell frontend)' "$LOG_LAYER" | tail -n1 || true)"
-  last_err="$(grep -E 'Error:|\\[(layer|overlay)\\].*error' "$LOG_LAYER" | tail -n1 || true)"
+  selected="$(grep -E '\\[(layer|overlay)\\].*monitor=' "$log_layer" | tail -n1 || true)"
+  fallback="$(grep -F "[layer] monitor '" "$log_layer" | grep -F 'not found; using compositor default output' | tail -n1 || true)"
+  configured="$(grep -E '\\[(layer|overlay)\\].*(configured surface|direct gtk4-layer-shell frontend)' "$log_layer" | tail -n1 || true)"
+  last_err="$(grep -E 'Error:|\\[(layer|overlay)\\].*error' "$log_layer" | tail -n1 || true)"
 
   if [[ -n "$selected" ]]; then
     echo "  selected_output=${selected#*: }"
@@ -2400,7 +2413,7 @@ case "$cmd" in
     cmd_logs "$@"
     ;;
   layer-status)
-    cmd_layer_status
+    cmd_layer_status "${1:-}"
     ;;
   run)
     if [[ "${1:-}" == "--config" ]]; then

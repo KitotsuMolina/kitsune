@@ -43,14 +43,14 @@ package() {
 
   install -d "${pkgdir}/usr/share/${_pkgname}/bin"
   install -Dm755 target/release/kitsune "${pkgdir}/usr/share/${_pkgname}/bin/kitsune"
-  install -Dm755 target/release/kitsune-layer "${pkgdir}/usr/share/${_pkgname}/bin/kitsune-layer"
+  install -Dm755 target/release/kitsune-overlay "${pkgdir}/usr/share/${_pkgname}/bin/kitsune-overlay"
 
   # Use packaged binaries instead of compiling on every start.
   sed -i \
     -e '/^echo "\[i\] Building Rust renderer\.\.\."$/d' \
     -e '/^cargo build --release --locked --bins$/d' \
     -e '/^cargo build --release --bins$/d' \
-    -e 's|\./target/release/kitsune-layer|"${KITSUNE_BIN_DIR:-./bin}"/kitsune-layer|g' \
+    -e 's|\./target/release/kitsune-overlay|"${KITSUNE_BIN_DIR:-./bin}"/kitsune-overlay|g' \
     -e 's|\./target/release/kitsune|"${KITSUNE_BIN_DIR:-./bin}"/kitsune|g' \
     "${pkgdir}/usr/share/${_pkgname}/scripts/start.sh" \
     "${pkgdir}/usr/share/${_pkgname}/scripts/kitsune.sh"

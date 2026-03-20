@@ -20,7 +20,51 @@ extract_wallpaper_path() {
   local mon="$1"
   local p=""
 
-  # 0) KitoWall CLI status (fuente principal en este setup)
+  # 0) Live wallpaper activo en KitoWall: usar thumb_path del item aplicado.
+  if [[ -z "$p" ]] && command -v kitowall >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+    p="$(
+      {
+        timeout 3 kitowall we active 2>/dev/null | sed '1s/^/__ACTIVE__/' 
+        printf '\n'
+        timeout 3 kitowall live config show 2>/dev/null | sed '1s/^/__LIVE__/'
+      } | node -e '
+        const fs = require("node:fs");
+        const input = fs.readFileSync(0, "utf8");
+        const mon = String(process.argv[1] || "");
+        const sections = input.split(/\n(?=__LIVE__)/);
+        const activeRaw = (sections[0] || "").replace(/^__ACTIVE__/, "").trim();
+        const liveRaw = (sections[1] || "").replace(/^__LIVE__/, "").trim();
+        const pickKey = (obj, key) => {
+          if (!obj || typeof obj !== "object" || !key) return undefined;
+          if (Object.prototype.hasOwnProperty.call(obj, key)) return key;
+          const alt = Object.keys(obj).find((k) => String(k).toLowerCase() === key.toLowerCase());
+          return alt;
+        };
+        try {
+          const active = JSON.parse(activeRaw || "{}");
+          if (!active?.active || active?.state?.mode !== "livewallpaper") process.exit(0);
+          const live = JSON.parse(liveRaw || "{}");
+          const index = live?.index && typeof live.index === "object" ? live.index : {};
+          const perMonitor = index?.per_monitor && typeof index.per_monitor === "object" ? index.per_monitor : {};
+          const items = Array.isArray(index?.items) ? index.items : [];
+          const monKey = pickKey(perMonitor, mon);
+          const liveInst = active?.state?.instances && typeof active.state.instances === "object"
+            ? pickKey(active.state.instances, mon)
+            : undefined;
+          const preferredMon = monKey || liveInst || pickKey(perMonitor, mon);
+          if (!preferredMon) process.exit(0);
+          const entry = perMonitor[preferredMon];
+          const wantedId = typeof entry?.last_applied_id === "string" ? entry.last_applied_id : "";
+          if (!wantedId) process.exit(0);
+          const item = items.find((it) => it && it.id === wantedId);
+          const thumb = typeof item?.thumb_path === "string" ? item.thumb_path.trim() : "";
+          if (thumb) process.stdout.write(thumb);
+        } catch (_) {}
+      ' "$mon" || true
+    )"
+  fi
+
+  # 1) KitoWall CLI status (fuente principal para wallpaper estatico en este setup)
   if [[ -z "$p" ]] && command -v kitowall >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
     p="$(timeout 3 kitowall status 2>/dev/null \
       | node -e '
@@ -39,7 +83,7 @@ extract_wallpaper_path() {
       ' "$mon" || true)"
   fi
 
-  # 1) swww (si esta activo)
+  # 2) swww (si esta activo)
   if [[ -z "$p" ]] && command -v swww >/dev/null 2>&1; then
     p="$(swww query 2>/dev/null | awk -v m="$mon" '
       BEGIN{f=0}
@@ -50,7 +94,7 @@ extract_wallpaper_path() {
     ' || true)"
   fi
 
-  # 2) hyprctl hyprpaper listactive (versiones que lo soportan)
+  # 3) hyprctl hyprpaper listactive (versiones que lo soportan)
   if [[ -z "$p" ]] && command -v hyprctl >/dev/null 2>&1; then
     p="$(hyprctl hyprpaper listactive 2>/dev/null | awk -v m="$mon" '
       $0 ~ m {
@@ -59,7 +103,7 @@ extract_wallpaper_path() {
     ' || true)"
   fi
 
-  # 3) fallback: hyprpaper.conf
+  # 4) fallback: hyprpaper.conf
   if [[ -z "$p" ]] && [[ -f "$HOME/.config/hypr/hyprpaper.conf" ]]; then
     p="$(awk -F'=' -v m="$mon" '
       /^[[:space:]]*wallpaper[[:space:]]*=/ {

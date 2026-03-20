@@ -122,7 +122,7 @@ cargo build --release --locked --bins
 ASSET_DIR="$ROOT_DIR/dist"
 mkdir -p "$ASSET_DIR"
 cp -f "target/release/kitsune" "$ASSET_DIR/kitsune-linux-x86_64"
-cp -f "target/release/kitsune-layer" "$ASSET_DIR/kitsune-layer-linux-x86_64"
+cp -f "target/release/kitsune-overlay" "$ASSET_DIR/kitsune-overlay-linux-x86_64"
 
 if ! git rev-parse "$TAG" >/dev/null 2>&1; then
   git tag "$TAG"
@@ -132,12 +132,12 @@ git push origin "$TAG"
 echo "[release] creating/updating GitHub release $TAG"
 gh release create "$TAG" \
   "$ASSET_DIR/kitsune-linux-x86_64#kitsune-linux-x86_64" \
-  "$ASSET_DIR/kitsune-layer-linux-x86_64#kitsune-layer-linux-x86_64" \
+  "$ASSET_DIR/kitsune-overlay-linux-x86_64#kitsune-overlay-linux-x86_64" \
   --generate-notes \
   --latest \
   || gh release upload "$TAG" \
     "$ASSET_DIR/kitsune-linux-x86_64#kitsune-linux-x86_64" \
-    "$ASSET_DIR/kitsune-layer-linux-x86_64#kitsune-layer-linux-x86_64" \
+    "$ASSET_DIR/kitsune-overlay-linux-x86_64#kitsune-overlay-linux-x86_64" \
     --clobber
 
 echo "[ok] release published: $TAG"
