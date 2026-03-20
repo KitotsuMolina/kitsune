@@ -20,7 +20,7 @@ bar_corner_radius=4
 segmented_bars=0
 segment_length=12
 segment_gap=6
-line_max_height_ratio=0.68
+line_max_height_ratio=0.58
 ring_inner_ratio=0.20
 ring_length_ratio=0.22
 bars_style=bars
@@ -87,5 +87,5 @@ test_profile_poll_ms=300
 profile_dir=./config/profiles
 
 # Comma-separated profile names (without extension)
-bars_profiles=bars_balanced,bars_punchy,bars_soft
+bars_profiles=bars_soft,bars_balanced,bars_punchy
 ring_profiles=ring_video_uno,ring_video_dos,ring_energy

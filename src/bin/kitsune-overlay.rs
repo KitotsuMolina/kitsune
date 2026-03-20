@@ -1218,7 +1218,6 @@ fn draw_line_layout(
         segment_gap,
     };
     let mut wave_points: Vec<(f64, f64)> = Vec::with_capacity(values.len());
-    let mut wave_base_y = height;
     for (index, value) in values.iter().enumerate() {
         let normalized = value.clamp(0.0, 1.0);
         let bar_height = (max_bar_height * normalized).max(2.0);
@@ -1234,7 +1233,6 @@ fn draw_line_layout(
                 let _ = ctx.fill();
             }
             RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesFill => {
-                wave_base_y = wave_base_y.min(y + (bar_height * 0.46));
                 wave_points.push((x + (bar_width * 0.5), y));
             }
             _ => {
@@ -1276,9 +1274,10 @@ fn draw_line_layout(
                     ctx.line_to(*x, *y);
                 }
             }
-            let fill_y = wave_base_y.max(height * 0.62);
-            ctx.line_to(width, fill_y);
-            ctx.line_to(0.0, fill_y);
+            let right_edge = start_x + rendered_total;
+            let left_edge = start_x;
+            ctx.line_to(right_edge, height);
+            ctx.line_to(left_edge, height);
             ctx.close_path();
             let _ = ctx.fill();
         } else {
