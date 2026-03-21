@@ -569,6 +569,9 @@ cmd_start() {
   configured_group_file="$(cfg_get group_file ./config/groups/default.group)"
   resolved_group_file="$(resolve_group_file "$configured_group_file" || true)"
   if [[ -n "$resolved_group_file" ]]; then
+    if [[ "$resolved_group_file" != /* ]]; then
+      resolved_group_file="$(pwd -P)/${resolved_group_file#./}"
+    fi
     cfg_set_in_file "$cfg_inst" group_file "$resolved_group_file"
   fi
 

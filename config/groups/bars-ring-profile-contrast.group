@@ -1,0 +1,5 @@
+# Bars + Ring profile contrast test
+# Designed to make profile-per-layer differences obvious.
+
+layer=1,bars,bars,bars_soft,#f4f7fb,0.34,standard,0,color_mode=accent_light
+layer=1,ring,bars,ring_energy,#19f0ff,0.58,standard,0,color_mode=accent_mid

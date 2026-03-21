@@ -31,6 +31,11 @@ if ! [[ "$STOP_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$STOP_TIMEOUT" -lt 0 ]]; then
   STOP_TIMEOUT=3
 fi
 
+sanitize_instance_id() {
+  local raw="$1"
+  printf '%s' "$raw" | tr -c '[:alnum:]_.-' '_'
+}
+
 killpid() {
   local f="$1"
   if [[ -f "$f" ]]; then
@@ -55,6 +60,45 @@ killpid() {
   fi
 }
 
+kill_tree() {
+  local pid="$1"
+  local child
+  [[ -n "$pid" ]] || return 0
+  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+    kill_tree "$child"
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    local waited=0
+    while kill -0 "$pid" 2>/dev/null && [[ "$waited" -lt "$STOP_TIMEOUT" ]]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null && [[ "$FORCE_KILL" == "1" ]]; then
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  fi
+}
+
+kill_conflicting_instance_processes() {
+  local monitor instance_id pattern pid cmdline
+  monitor="$(cfg_get monitor "")"
+  [[ -n "$monitor" ]] || return 0
+  instance_id="$(sanitize_instance_id "$monitor")"
+  pattern="instances/${instance_id}/config/base.conf"
+  for pid in $(pgrep -f "$pattern" 2>/dev/null || true); do
+    cmdline="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
+    case "$cmdline" in
+      *kitsune-overlay*|*kitsune-layer*)
+        ;;
+      *)
+        continue
+        ;;
+    esac
+    kill_tree "$pid"
+  done
+}
+
 echo "[i] Stopping..."
 killpid "$PID_REN"
 killpid "$PID_MON"
@@ -62,6 +106,7 @@ killpid "$PID_CAVA"
 killpid "$PID_MPV"
 killpid "$PID_LAYER"
 killpid "$PID_COLOR"
+kill_conflicting_instance_processes
 
 rm -f "${RUN_PREFIX}/target_monitor" "${RUN_PREFIX}/target_reason" 2>/dev/null || true
 

@@ -65,6 +65,29 @@ enum ColorMode {
     AccentDark,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpectrumZone {
+    Full,
+    Bass,
+    Mid,
+    Treble,
+    BassMid,
+    MidTreble,
+}
+
+impl SpectrumZone {
+    fn from_str(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "bass" | "low" | "graves" => Self::Bass,
+            "mid" | "mids" | "medios" => Self::Mid,
+            "treble" | "high" | "agudos" => Self::Treble,
+            "bass_mid" | "bass-mid" | "low_mid" | "low-mid" => Self::BassMid,
+            "mid_treble" | "mid-treble" | "high_mid" | "high-mid" => Self::MidTreble,
+            _ => Self::Full,
+        }
+    }
+}
+
 impl ColorMode {
     fn from_str(raw: &str) -> Self {
         match raw.trim().to_ascii_lowercase().as_str() {
@@ -152,6 +175,36 @@ struct Config {
     ring_style: RenderStyle,
     group_file: PathBuf,
     group_poll_ms: u64,
+    ring_show_threshold: f64,
+    ring_hide_threshold: f64,
+    ring_fade_in_sec: f64,
+    ring_fade_out_sec: f64,
+    neon_enabled: bool,
+    neon_strength: f64,
+    neon_layers: usize,
+    afterglow_enabled: bool,
+    afterglow_decay: f64,
+    afterglow_alpha: f64,
+    particles_enabled: bool,
+    particles_max: usize,
+    particles_spawn_rate: f64,
+    particles_life_min: f64,
+    particles_life_max: f64,
+    particles_speed_min: f64,
+    particles_speed_max: f64,
+    particles_size_min: f64,
+    particles_size_max: f64,
+    particles_alpha: f64,
+    particles_drift: f64,
+    particles_mode: String,
+    particles_color: RgbaColor,
+    particles_color_mode: ColorMode,
+    particles_glow_strength: f64,
+    base_light_enabled: bool,
+    base_light_height: f64,
+    base_light_alpha: f64,
+    base_light_color: RgbaColor,
+    base_light_color_mode: ColorMode,
 }
 
 #[derive(Debug, Clone)]
@@ -159,9 +212,95 @@ struct GroupLayer {
     enabled: bool,
     mode: VisualMode,
     style: RenderStyle,
+    profile: LayerProfile,
+    zone: SpectrumZone,
     static_color: RgbaColor,
     color_mode: ColorMode,
     alpha: f64,
+    auto_hide: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LayerVisibility {
+    alpha: f64,
+    target_visible: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LayerProfile {
+    gain: f64,
+    gamma: f64,
+    curve_drive: f64,
+    bass_boost: f64,
+    bass_power: f64,
+    low_band_gain: f64,
+    mid_band_gain: f64,
+    high_band_gain: f64,
+    height_scale: f64,
+    loud_floor: f64,
+    loud_floor_curve: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OverlayParticle {
+    x: f64,
+    y: f64,
+    vx: f64,
+    vy: f64,
+    life: f64,
+    age: f64,
+    size: f64,
+    alpha: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParticleMode {
+    Auto,
+    BarsBase,
+    RingCenter,
+}
+
+impl ParticleMode {
+    fn from_str(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "bars_base" | "bars-base" | "bars" => Self::BarsBase,
+            "ring_center" | "ring-center" | "ring" => Self::RingCenter,
+            _ => Self::Auto,
+        }
+    }
+}
+
+impl LayerProfile {
+    fn defaults_for(mode: VisualMode) -> Self {
+        match mode {
+            VisualMode::Ring => Self {
+                gain: 2.10,
+                gamma: 0.70,
+                curve_drive: 0.95,
+                bass_boost: 0.22,
+                bass_power: 2.1,
+                low_band_gain: 1.0,
+                mid_band_gain: 1.0,
+                high_band_gain: 1.0,
+                height_scale: 0.52,
+                loud_floor: 0.22,
+                loud_floor_curve: 1.18,
+            },
+            VisualMode::Bars => Self {
+                gain: 1.82,
+                gamma: 0.80,
+                curve_drive: 0.84,
+                bass_boost: 0.14,
+                bass_power: 2.0,
+                low_band_gain: 1.0,
+                mid_band_gain: 1.0,
+                high_band_gain: 1.0,
+                height_scale: 0.44,
+                loud_floor: 0.18,
+                loud_floor_curve: 1.14,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -292,8 +431,20 @@ fn cfg_get_string(map: &HashMap<String, String>, key: &str, default: &str) -> St
     map.get(key).cloned().unwrap_or_else(|| default.to_string())
 }
 
+fn map_get_num_f64(map: &HashMap<String, String>, key: &str, default: f64) -> f64 {
+    map.get(key)
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(default)
+}
+
 fn parse_config(path: &Path) -> Config {
-    let map = cfg_map(path).unwrap_or_default();
+    let map = match cfg_map(path) {
+        Ok(map) => map,
+        Err(err) => {
+            eprintln!("[overlay] failed to load config {}: {}", path.display(), err);
+            HashMap::new()
+        }
+    };
     let monitor = cfg_get_string(&map, "monitor", "DP-1");
     let width = map
         .get("width")
@@ -437,6 +588,144 @@ fn parse_config(path: &Path) -> Config {
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(400)
         .max(50);
+    let ring_show_threshold = map
+        .get("ring_show_threshold")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.030)
+        .clamp(0.001, 1.0);
+    let ring_hide_threshold = map
+        .get("ring_hide_threshold")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.012)
+        .clamp(0.0, 1.0);
+    let ring_fade_in_sec = map
+        .get("ring_fade_in_sec")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.25)
+        .clamp(0.01, 5.0);
+    let ring_fade_out_sec = map
+        .get("ring_fade_out_sec")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.85)
+        .clamp(0.01, 10.0);
+    let neon_enabled = map
+        .get("neon_enabled")
+        .map(|v| parse_boolish(v))
+        .unwrap_or(map.get("postfx_enabled").map(|v| parse_boolish(v)).unwrap_or(true));
+    let neon_strength = map
+        .get("neon_strength")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(map.get("postfx_glow_strength").and_then(|v| v.parse::<f64>().ok()).unwrap_or(1.35))
+        .clamp(0.0, 4.0);
+    let neon_layers = map
+        .get("neon_layers")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(3)
+        .clamp(1, 6);
+    let afterglow_enabled = map
+        .get("afterglow_enabled")
+        .map(|v| parse_boolish(v))
+        .unwrap_or(true);
+    let afterglow_decay = map
+        .get("afterglow_decay")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.78)
+        .clamp(0.0, 0.98);
+    let afterglow_alpha = map
+        .get("afterglow_alpha")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.26)
+        .clamp(0.0, 1.0);
+    let particles_enabled = map
+        .get("particles_enabled")
+        .map(|v| parse_boolish(v))
+        .unwrap_or(false);
+    let particles_max = map
+        .get("particles_max")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(100)
+        .clamp(0, 4000);
+    let particles_spawn_rate = map
+        .get("particles_spawn_rate")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(24.0)
+        .clamp(0.0, 4000.0);
+    let particles_life_min = map
+        .get("particles_life_min")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.45)
+        .clamp(0.02, 8.0);
+    let particles_life_max = map
+        .get("particles_life_max")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(1.20)
+        .clamp(0.03, 10.0);
+    let particles_speed_min = map
+        .get("particles_speed_min")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(24.0)
+        .clamp(1.0, 4000.0);
+    let particles_speed_max = map
+        .get("particles_speed_max")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(96.0)
+        .clamp(1.0, 4000.0);
+    let particles_size_min = map
+        .get("particles_size_min")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(1.0)
+        .clamp(1.0, 24.0);
+    let particles_size_max = map
+        .get("particles_size_max")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(2.0)
+        .clamp(1.0, 32.0);
+    let particles_alpha = map
+        .get("particles_alpha")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.58)
+        .clamp(0.0, 1.0);
+    let particles_drift = map
+        .get("particles_drift")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(22.0)
+        .clamp(0.0, 1200.0);
+    let particles_mode = cfg_get_string(&map, "particles_mode", "auto");
+    let particles_color = RgbaColor::from_hex_with_alpha(
+        map.get("particles_color").map(String::as_str).unwrap_or("#FFFFFF"),
+        0.96,
+    );
+    let particles_color_mode = map
+        .get("particles_color_mode")
+        .map(|v| ColorMode::from_str(v))
+        .unwrap_or(ColorMode::Static);
+    let particles_glow_strength = map
+        .get("particles_glow_strength")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(1.15)
+        .clamp(0.0, 4.0);
+    let base_light_enabled = map
+        .get("base_light_enabled")
+        .map(|v| parse_boolish(v))
+        .unwrap_or(false);
+    let base_light_height = map
+        .get("base_light_height")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(18.0)
+        .clamp(1.0, 160.0);
+    let base_light_alpha = map
+        .get("base_light_alpha")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.26)
+        .clamp(0.0, 1.0);
+    let base_light_color = RgbaColor::from_hex_with_alpha(
+        map.get("base_light_color").map(String::as_str).unwrap_or("#19f0ff"),
+        0.96,
+    );
+    let base_light_color_mode = map
+        .get("base_light_color_mode")
+        .map(|v| ColorMode::from_str(v))
+        .unwrap_or(ColorMode::AccentLight);
 
     Config {
         monitor,
@@ -476,6 +765,36 @@ fn parse_config(path: &Path) -> Config {
         ring_style: RenderStyle::from_str(&ring_style_raw),
         group_file,
         group_poll_ms,
+        ring_show_threshold,
+        ring_hide_threshold,
+        ring_fade_in_sec,
+        ring_fade_out_sec,
+        neon_enabled,
+        neon_strength,
+        neon_layers,
+        afterglow_enabled,
+        afterglow_decay,
+        afterglow_alpha,
+        particles_enabled,
+        particles_max,
+        particles_spawn_rate,
+        particles_life_min,
+        particles_life_max,
+        particles_speed_min,
+        particles_speed_max,
+        particles_size_min,
+        particles_size_max,
+        particles_alpha,
+        particles_drift,
+        particles_mode,
+        particles_color,
+        particles_color_mode,
+        particles_glow_strength,
+        base_light_enabled,
+        base_light_height,
+        base_light_alpha,
+        base_light_color,
+        base_light_color_mode,
     }
 }
 
@@ -488,10 +807,77 @@ fn resolve_group_path(base_config: &Path, raw: &str) -> PathBuf {
     if path.is_absolute() {
         path
     } else {
-        base_config
+        let primary = base_config
             .parent()
             .unwrap_or_else(|| Path::new("."))
-            .join(path)
+            .join(&path);
+        if primary.exists() {
+            return primary;
+        }
+
+        let cwd_joined = Path::new(".").join(&path);
+        if cwd_joined.exists() {
+            return cwd_joined;
+        }
+
+        if let Some(file_name) = path.file_name() {
+            let fallback = Path::new("./config/groups").join(file_name);
+            if fallback.exists() {
+                return fallback;
+            }
+        }
+
+        primary
+    }
+}
+
+fn resolve_profile_path(config_path: &Path, raw: &str) -> PathBuf {
+    let candidate = PathBuf::from(raw);
+    if candidate.is_absolute() {
+        return candidate;
+    }
+
+    let with_ext = if candidate.extension().is_some() {
+        candidate.clone()
+    } else {
+        candidate.with_extension("profile")
+    };
+
+    let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
+    let roots = [
+        config_dir.join(&with_ext),
+        Path::new(".").join(&with_ext),
+        Path::new("./config/profiles").join(with_ext.file_name().unwrap_or_default()),
+    ];
+
+    for root in roots {
+        if root.exists() {
+            return root;
+        }
+    }
+
+    config_dir.join(with_ext)
+}
+
+fn load_layer_profile(config_path: &Path, mode: VisualMode, raw: &str) -> LayerProfile {
+    let defaults = LayerProfile::defaults_for(mode);
+    let profile_path = resolve_profile_path(config_path, raw);
+    let Ok(map) = cfg_map(&profile_path) else {
+        return defaults;
+    };
+
+    LayerProfile {
+        gain: map_get_num_f64(&map, "gain", defaults.gain).max(0.0),
+        gamma: map_get_num_f64(&map, "gamma", defaults.gamma).max(0.0001),
+        curve_drive: map_get_num_f64(&map, "curve_drive", defaults.curve_drive).max(0.1),
+        bass_boost: map_get_num_f64(&map, "bass_boost", defaults.bass_boost).clamp(0.0, 4.0),
+        bass_power: map_get_num_f64(&map, "bass_power", defaults.bass_power).clamp(1.0, 8.0),
+        low_band_gain: map_get_num_f64(&map, "low_band_gain", defaults.low_band_gain).clamp(0.0, 4.0),
+        mid_band_gain: map_get_num_f64(&map, "mid_band_gain", defaults.mid_band_gain).clamp(0.0, 4.0),
+        high_band_gain: map_get_num_f64(&map, "high_band_gain", defaults.high_band_gain).clamp(0.0, 4.0),
+        height_scale: map_get_num_f64(&map, "height_scale", defaults.height_scale).clamp(0.05, 1.0),
+        loud_floor: map_get_num_f64(&map, "loud_floor", defaults.loud_floor).clamp(0.0, 1.0),
+        loud_floor_curve: map_get_num_f64(&map, "loud_floor_curve", defaults.loud_floor_curve).max(0.5),
     }
 }
 
@@ -519,8 +905,11 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
         let enabled = parse_boolish(parts[0]);
         let mode = VisualMode::from_str(parts[1]);
         let style = RenderStyle::from_str(parts[2]);
+        let profile = load_layer_profile(config_path, mode, parts[3]);
         let alpha = parts[5].parse::<f64>().unwrap_or(1.0).clamp(0.0, 1.0);
         let mut color_mode = ColorMode::Static;
+        let mut auto_hide = mode == VisualMode::Ring;
+        let mut zone = SpectrumZone::Full;
         if matches!(
             parts[4].to_ascii_lowercase().as_str(),
             "accent_light" | "accent_mid" | "accent_dark" | "static"
@@ -532,6 +921,14 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
                 && key.trim().eq_ignore_ascii_case("color_mode")
             {
                 color_mode = ColorMode::from_str(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("auto_hide")
+            {
+                auto_hide = parse_boolish(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("zone")
+            {
+                zone = SpectrumZone::from_str(value);
             }
         }
         let static_color = if color_mode == ColorMode::Static {
@@ -539,18 +936,103 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
         } else {
             RgbaColor::from_hex_with_alpha("#ffffff", alpha)
         };
-        let _profile = parts[3];
-        let _resolved_group_path = resolve_group_path(config_path, &group_path.to_string_lossy());
         layers.push(GroupLayer {
             enabled,
             mode,
             style,
+            profile,
+            zone,
             static_color,
             color_mode,
             alpha,
+            auto_hide,
         });
     }
     layers
+}
+
+fn apply_layer_profile(values: &[f64], mode: VisualMode, profile: &LayerProfile) -> Vec<f64> {
+    if values.is_empty() {
+        return Vec::new();
+    }
+
+    let denom = (values.len().saturating_sub(1)).max(1) as f64;
+    let energy = values.iter().copied().sum::<f64>() / values.len() as f64;
+    let loud_floor = profile.loud_floor * energy.powf(profile.loud_floor_curve);
+    let height_gain = (profile.height_scale / 0.52).clamp(0.25, 2.0);
+
+    values
+        .iter()
+        .enumerate()
+        .map(|(i, src)| {
+            let pos = i as f64 / denom;
+            let low = 1.0 - pos;
+            let band_gain = if pos < 0.33 {
+                profile.low_band_gain
+            } else if pos < 0.66 {
+                profile.mid_band_gain
+            } else {
+                profile.high_band_gain
+            };
+            let boosted = *src * band_gain * (1.0 + profile.bass_boost * low.powf(profile.bass_power));
+            let raw = (boosted * profile.gain).max(0.0).powf(profile.gamma);
+            let mut curved = 1.0 - (-raw * profile.curve_drive).exp();
+            curved *= height_gain;
+            let curved = curved.clamp(0.0, 1.0);
+            match mode {
+                VisualMode::Ring => curved.max(loud_floor * 0.85).clamp(0.0, 1.0),
+                VisualMode::Bars => {
+                    let center_dist = (pos - 0.5).abs() * 2.0;
+                    let floor_bar = loud_floor * (0.85 + 0.15 * (1.0 - center_dist));
+                    curved.max(floor_bar).clamp(0.0, 1.0)
+                }
+            }
+        })
+        .collect()
+}
+
+fn zone_weight(zone: SpectrumZone, pos: f64) -> f64 {
+    let clamp_band = |start: f64, end: f64, p: f64| -> f64 {
+        if p < start || p > end {
+            return 0.0;
+        }
+        let center = (start + end) * 0.5;
+        let half = ((end - start) * 0.5).max(1e-6);
+        let dist = ((p - center).abs() / half).clamp(0.0, 1.0);
+        (1.0 - dist * dist).clamp(0.0, 1.0)
+    };
+
+    match zone {
+        SpectrumZone::Full => 1.0,
+        SpectrumZone::Bass => clamp_band(0.00, 0.22, pos),
+        SpectrumZone::Mid => clamp_band(0.20, 0.68, pos),
+        SpectrumZone::Treble => clamp_band(0.62, 1.00, pos),
+        SpectrumZone::BassMid => clamp_band(0.00, 0.56, pos),
+        SpectrumZone::MidTreble => clamp_band(0.36, 1.00, pos),
+    }
+}
+
+fn apply_spectrum_zone(values: &[f64], zone: SpectrumZone) -> Vec<f64> {
+    if values.is_empty() || zone == SpectrumZone::Full {
+        return values.to_vec();
+    }
+    let denom = (values.len().saturating_sub(1)).max(1) as f64;
+    values
+        .iter()
+        .enumerate()
+        .map(|(i, value)| {
+            let pos = i as f64 / denom;
+            value * zone_weight(zone, pos)
+        })
+        .collect()
+}
+
+fn compute_layer_energy(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        0.0
+    } else {
+        values.iter().copied().sum::<f64>() / values.len() as f64
+    }
 }
 
 fn load_palette(path: &Path, fallback: Palette) -> Palette {
@@ -986,38 +1468,153 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let single_color_mode = cfg.color_mode;
     let single_color2_mode = cfg.color2_mode;
     let config_path = cfg.config_path.clone();
-    let group_path = resolve_group_path(&config_path, &cfg.group_file.to_string_lossy());
+    let group_raw = cfg.group_file.to_string_lossy().to_string();
+    let group_path = resolve_group_path(&config_path, &group_raw);
+    eprintln!(
+        "[overlay] spectrum_mode={:?} group_file_raw={} group_file_resolved={}",
+        spectrum_mode,
+        group_raw,
+        group_path.display()
+    );
     let group_layers = Arc::new(Mutex::new(parse_group_layers(&config_path, &group_path)));
     let group_layers_for_timer = Arc::clone(&group_layers);
     let group_last_mtime = Arc::new(Mutex::new(fs::metadata(&group_path).and_then(|m| m.modified()).ok()));
     let group_last_mtime_for_timer = Arc::clone(&group_last_mtime);
+    let group_visibility = Arc::new(Mutex::new(Vec::<LayerVisibility>::new()));
+    let group_visibility_for_draw = Arc::clone(&group_visibility);
+    let group_visibility_for_timer = Arc::clone(&group_visibility);
     let group_poll_ms = cfg.group_poll_ms;
+    let ring_show_threshold = cfg.ring_show_threshold;
+    let ring_hide_threshold = cfg.ring_hide_threshold;
+    let ring_fade_in_sec = cfg.ring_fade_in_sec;
+    let ring_fade_out_sec = cfg.ring_fade_out_sec;
     let palette_file = cfg.color_palette_file.clone();
     let palette_for_timer = Arc::clone(&palette);
+    let stream_for_draw = Arc::clone(&stream);
+    let stream_for_timer = Arc::clone(&stream);
+    let stream_for_tick = Arc::clone(&stream);
+    let group_layers_for_tick = Arc::clone(&group_layers);
+    let afterglow_state = Arc::new(Mutex::new(vec![0.0; cfg.bars]));
+    let afterglow_state_for_draw = Arc::clone(&afterglow_state);
+    let afterglow_state_for_timer = Arc::clone(&afterglow_state);
+    let particles = Arc::new(Mutex::new(Vec::<OverlayParticle>::new()));
+    let particles_for_draw = Arc::clone(&particles);
+    let particles_for_timer = Arc::clone(&particles);
+    let particle_accum = Arc::new(Mutex::new(0.0_f64));
+    let particle_accum_for_timer = Arc::clone(&particle_accum);
+    let rng_state = Arc::new(Mutex::new(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0xC0DEC0DE),
+    ));
+    let rng_state_for_timer = Arc::clone(&rng_state);
+    let particle_mode = ParticleMode::from_str(&cfg.particles_mode);
+    let neon_enabled = cfg.neon_enabled;
+    let neon_strength = cfg.neon_strength;
+    let neon_layers = cfg.neon_layers;
+    let afterglow_enabled = cfg.afterglow_enabled;
+    let afterglow_alpha = cfg.afterglow_alpha;
+    let afterglow_decay = cfg.afterglow_decay;
+    let particles_enabled = cfg.particles_enabled;
+    let particles_max = cfg.particles_max;
+    let particles_spawn_rate = cfg.particles_spawn_rate;
+    let particles_speed_max = cfg.particles_speed_max;
+    let particles_color = cfg.particles_color;
+    let particles_color_mode = cfg.particles_color_mode;
+    let particles_glow_strength = cfg.particles_glow_strength;
+    let base_light_enabled = cfg.base_light_enabled;
+    let base_light_height = cfg.base_light_height;
+    let base_light_alpha = cfg.base_light_alpha;
+    let base_light_color = cfg.base_light_color;
+    let base_light_color_mode = cfg.base_light_color_mode;
+    let cfg_for_particles = cfg.clone();
 
     drawing_area.set_draw_func(move |_, ctx, width, height| {
         ctx.set_source_rgba(0.0, 0.0, 0.0, 0.0);
         let _ = ctx.paint();
 
-        let values = stream.lock().map(|v| v.clone()).unwrap_or_default();
+        let values = stream_for_draw.lock().map(|v| v.clone()).unwrap_or_default();
         if values.is_empty() {
             return;
         }
+        let afterglow_values = afterglow_state_for_draw
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_else(|_| vec![0.0; values.len()]);
         let current_palette = palette.lock().map(|v| *v).unwrap_or(default_palette);
-
+        let resolved_base_light_color = current_palette.resolve(base_light_color_mode, base_light_color);
         if spectrum_mode == SpectrumMode::Group {
             let layers = group_layers.lock().map(|v| v.clone()).unwrap_or_default();
-            for layer in layers.iter().filter(|layer| layer.enabled) {
+            let vis = group_visibility_for_draw
+                .lock()
+                .map(|v| v.clone())
+                .unwrap_or_default();
+            for (layer_index, layer) in layers.iter().enumerate() {
+                if !layer.enabled {
+                    continue;
+                }
                 let base_color = current_palette.resolve(layer.color_mode, layer.static_color);
-                draw_visual_layer(
+                let zoned_values = apply_spectrum_zone(&values, layer.zone);
+                let layer_values = apply_layer_profile(&zoned_values, layer.mode, &layer.profile);
+                let visibility_alpha = vis
+                    .get(layer_index)
+                    .map(|entry| entry.alpha)
+                    .unwrap_or(if layer.auto_hide { 0.0 } else { 1.0 });
+                if visibility_alpha <= 0.001 {
+                    continue;
+                }
+                let layer_color2 = gradient_color(base_color, current_palette.accent_light, 0.35);
+                let layer_alpha = (layer.alpha * visibility_alpha * 1.8).clamp(0.0, 1.0);
+                if afterglow_enabled && afterglow_alpha > 0.001 {
+                    let ghost_zoned = apply_spectrum_zone(&afterglow_values, layer.zone);
+                    let ghost_values = apply_layer_profile(&ghost_zoned, layer.mode, &layer.profile);
+                    draw_visual_layer_with_effects(
+                        ctx,
+                        width as f64,
+                        height as f64,
+                        &ghost_values,
+                        layer.mode,
+                        layer.style,
+                        gradient_color(base_color, layer_color2, 0.45),
+                        layer_color2,
+                        bar_width,
+                        bar_gap,
+                        bar_corner_radius,
+                        segmented_bars,
+                        segment_length,
+                        segment_gap,
+                        bars_wave_thickness,
+                        bars_dot_radius,
+                        ring_wave_thickness,
+                        ring_dot_radius,
+                        bars_wave_roundness,
+                        ring_wave_roundness,
+                        ring_fill_softness,
+                        ring_fill_overlap_px,
+                        line_max_height_ratio,
+                        ring_inner_ratio,
+                        ring_length_ratio,
+                        polygon_sides,
+                        (layer_alpha * afterglow_alpha).clamp(0.0, 1.0),
+                        false,
+                        neon_strength,
+                        neon_layers,
+                        false,
+                        base_light_height,
+                        base_light_alpha,
+                        resolved_base_light_color,
+                    );
+                }
+                draw_visual_layer_with_effects(
                     ctx,
                     width as f64,
                     height as f64,
-                    &values,
+                    &layer_values,
                     layer.mode,
                     layer.style,
                     base_color,
-                    gradient_color(base_color, current_palette.accent_light, 0.35),
+                    layer_color2,
                     bar_width,
                     bar_gap,
                     bar_corner_radius,
@@ -1036,8 +1633,28 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     ring_inner_ratio,
                     ring_length_ratio,
                     polygon_sides,
-                    (layer.alpha * 1.8).clamp(0.0, 1.0),
+                    layer_alpha,
+                    neon_enabled,
+                    neon_strength,
+                    neon_layers,
+                    base_light_enabled,
+                    base_light_height,
+                    base_light_alpha,
+                    resolved_base_light_color,
                 );
+            }
+            if particles_enabled {
+                let particle_color = current_palette.resolve(particles_color_mode, particles_color);
+                let particle_color2 = current_palette.resolve(ColorMode::AccentLight, color2);
+                if let Ok(live_particles) = particles_for_draw.lock() {
+                    draw_particles(
+                        ctx,
+                        &live_particles,
+                        particle_color,
+                        particle_color2,
+                        particles_glow_strength,
+                    );
+                }
             }
             return;
         }
@@ -1048,7 +1665,45 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             VisualMode::Ring => single_ring_style,
             VisualMode::Bars => single_bars_style,
         };
-        draw_visual_layer(
+        if afterglow_enabled && afterglow_alpha > 0.001 {
+            draw_visual_layer_with_effects(
+                ctx,
+                width as f64,
+                height as f64,
+                &afterglow_values,
+                single_mode,
+                style,
+                gradient_color(single_color, single_color2, 0.45),
+                single_color2,
+                bar_width,
+                bar_gap,
+                bar_corner_radius,
+                segmented_bars,
+                segment_length,
+                segment_gap,
+                bars_wave_thickness,
+                bars_dot_radius,
+                ring_wave_thickness,
+                ring_dot_radius,
+                bars_wave_roundness,
+                ring_wave_roundness,
+                ring_fill_softness,
+                ring_fill_overlap_px,
+                line_max_height_ratio,
+                ring_inner_ratio,
+                ring_length_ratio,
+                polygon_sides,
+                afterglow_alpha.clamp(0.0, 1.0),
+                false,
+                neon_strength,
+                neon_layers,
+                false,
+                base_light_height,
+                base_light_alpha,
+                resolved_base_light_color,
+            );
+        }
+        draw_visual_layer_with_effects(
             ctx,
             width as f64,
             height as f64,
@@ -1076,13 +1731,91 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             ring_length_ratio,
             polygon_sides,
             1.0,
+            neon_enabled,
+            neon_strength,
+            neon_layers,
+            base_light_enabled,
+            base_light_height,
+            base_light_alpha,
+            resolved_base_light_color,
         );
+        if particles_enabled {
+            let particle_color = current_palette.resolve(particles_color_mode, particles_color);
+            if let Ok(live_particles) = particles_for_draw.lock() {
+                draw_particles(
+                    ctx,
+                    &live_particles,
+                    particle_color,
+                    single_color2,
+                    particles_glow_strength,
+                );
+            }
+        }
     });
 
     let area_weak = drawing_area.downgrade();
     let tick_ms = (1000_u64 / u64::from(cfg.fps)).max(1);
     glib::timeout_add_local(Duration::from_millis(tick_ms), move || {
         if let Some(area) = area_weak.upgrade() {
+            let dt = tick_ms as f64 / 1000.0;
+            let snapshot = stream_for_tick.lock().map(|v| v.clone()).unwrap_or_default();
+            if afterglow_enabled && !snapshot.is_empty()
+                && let Ok(mut ghost) = afterglow_state_for_timer.lock()
+            {
+                if ghost.len() != snapshot.len() {
+                    ghost.resize(snapshot.len(), 0.0);
+                }
+                for (target, sample) in ghost.iter_mut().zip(snapshot.iter()) {
+                    *target = (sample.max(*target * afterglow_decay)).clamp(0.0, 1.0);
+                }
+            }
+            if particles_enabled && particles_max > 0 && width_height_valid(cfg_for_particles.width, cfg_for_particles.height) {
+                let layers_snapshot = group_layers_for_tick.lock().map(|v| v.clone()).unwrap_or_default();
+                let mode = effective_particle_mode(
+                    particle_mode,
+                    spectrum_mode,
+                    single_mode,
+                    &layers_snapshot,
+                );
+                let mut spawn_budget = particles_spawn_rate * dt;
+                if let Ok(mut accum) = particle_accum_for_timer.lock() {
+                    *accum += spawn_budget;
+                    spawn_budget = accum.floor();
+                    *accum -= spawn_budget;
+                }
+                if let Ok(mut rng) = rng_state_for_timer.lock()
+                    && let Ok(mut live_particles) = particles_for_timer.lock()
+                {
+                    for _ in 0..spawn_budget as usize {
+                        if live_particles.len() >= particles_max {
+                            break;
+                        }
+                        live_particles.push(spawn_overlay_particle(
+                            &mut rng,
+                            mode,
+                            cfg_for_particles.width as f64,
+                            cfg_for_particles.height as f64,
+                            &cfg_for_particles,
+                        ));
+                    }
+                    for particle in live_particles.iter_mut() {
+                        particle.age += dt;
+                        particle.x += particle.vx * dt;
+                        particle.y += particle.vy * dt;
+                        particle.vx += lerp(-cfg_for_particles.particles_drift, cfg_for_particles.particles_drift, pseudo_rand01(&mut rng)) * dt * 0.18;
+                        if mode == ParticleMode::BarsBase {
+                            particle.vy -= particles_speed_max * dt * 0.06;
+                        }
+                    }
+                    live_particles.retain(|particle| {
+                        particle.age < particle.life
+                            && particle.x >= -32.0
+                            && particle.x <= cfg_for_particles.width as f64 + 32.0
+                            && particle.y >= -64.0
+                            && particle.y <= cfg_for_particles.height as f64 + 64.0
+                    });
+                }
+            }
             area.queue_draw();
             glib::ControlFlow::Continue
         } else {
@@ -1105,6 +1838,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             if let Ok(mut target) = group_layers_for_timer.lock() {
                 *target = layers;
             }
+            if let Ok(mut vis) = group_visibility_for_timer.lock() {
+                vis.clear();
+            }
             if let Some(area) = area_weak_reload.upgrade() {
                 area.queue_draw();
             }
@@ -1113,10 +1849,60 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
         if let Ok(mut target) = palette_for_timer.lock() {
             *target = loaded_palette;
         }
+        let snapshot = stream_for_timer.lock().map(|v| v.clone()).unwrap_or_default();
+        let layers = group_layers_for_timer
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_default();
+        if let Ok(mut vis) = group_visibility_for_timer.lock() {
+            if vis.len() != layers.len() {
+                vis.resize(
+                    layers.len(),
+                    LayerVisibility {
+                        alpha: 1.0,
+                        target_visible: true,
+                    },
+                );
+            }
+            for (entry, layer) in vis.iter_mut().zip(layers.iter()) {
+                if !layer.enabled {
+                    entry.alpha = 0.0;
+                    entry.target_visible = false;
+                    continue;
+                }
+                if !layer.auto_hide {
+                    entry.alpha = 1.0;
+                    entry.target_visible = true;
+                    continue;
+                }
+                let zoned = apply_spectrum_zone(&snapshot, layer.zone);
+                let profiled = apply_layer_profile(&zoned, layer.mode, &layer.profile);
+                let energy = compute_layer_energy(&profiled);
+                if entry.target_visible {
+                    if energy <= ring_hide_threshold {
+                        entry.target_visible = false;
+                    }
+                } else if energy >= ring_show_threshold {
+                    entry.target_visible = true;
+                }
+
+                if entry.target_visible {
+                    let step = (group_poll_ms as f64 / 1000.0 / ring_fade_in_sec).clamp(0.0, 1.0);
+                    entry.alpha = (entry.alpha + step).clamp(0.0, 1.0);
+                } else {
+                    let step = (group_poll_ms as f64 / 1000.0 / ring_fade_out_sec).clamp(0.0, 1.0);
+                    entry.alpha = (entry.alpha - step).clamp(0.0, 1.0);
+                }
+            }
+        }
         glib::ControlFlow::Continue
     });
 
     drawing_area
+}
+
+fn width_height_valid(width: i32, height: i32) -> bool {
+    width > 0 && height > 0
 }
 
 fn gradient_color(a: RgbaColor, b: RgbaColor, t: f64) -> RgbaColor {
@@ -1138,6 +1924,249 @@ fn vivid_color(mut color: RgbaColor) -> RgbaColor {
     color.b = (color.b * boost).clamp(0.0, 1.0);
     color.a = color.a.clamp(0.92, 1.0);
     color
+}
+
+fn pseudo_rand01(state: &mut u64) -> f64 {
+    *state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    let value = (*state >> 11) as f64;
+    let max = (u64::MAX >> 11) as f64;
+    (value / max).clamp(0.0, 1.0)
+}
+
+fn lerp(a: f64, b: f64, t: f64) -> f64 {
+    a + (b - a) * t.clamp(0.0, 1.0)
+}
+
+fn effective_particle_mode(
+    configured: ParticleMode,
+    spectrum_mode: SpectrumMode,
+    single_mode: VisualMode,
+    layers: &[GroupLayer],
+) -> ParticleMode {
+    match configured {
+        ParticleMode::Auto => {
+            if spectrum_mode == SpectrumMode::Group {
+                if layers.iter().any(|layer| layer.enabled && layer.mode == VisualMode::Ring) {
+                    ParticleMode::RingCenter
+                } else {
+                    ParticleMode::BarsBase
+                }
+            } else if single_mode == VisualMode::Ring {
+                ParticleMode::RingCenter
+            } else {
+                ParticleMode::BarsBase
+            }
+        }
+        explicit => explicit,
+    }
+}
+
+fn spawn_overlay_particle(
+    rng: &mut u64,
+    mode: ParticleMode,
+    width: f64,
+    height: f64,
+    cfg: &Config,
+) -> OverlayParticle {
+    let life = lerp(cfg.particles_life_min, cfg.particles_life_max, pseudo_rand01(rng));
+    let speed = lerp(cfg.particles_speed_min, cfg.particles_speed_max, pseudo_rand01(rng));
+    let size = lerp(cfg.particles_size_min, cfg.particles_size_max, pseudo_rand01(rng));
+    let drift = cfg.particles_drift;
+    match mode {
+        ParticleMode::RingCenter => {
+            let angle = pseudo_rand01(rng) * PI * 2.0;
+            let inner = width.min(height) * cfg.ring_inner_ratio;
+            let spread = lerp(0.0, width.min(height) * 0.018, pseudo_rand01(rng));
+            let origin_radius = inner + spread;
+            let x = (width * 0.5) + angle.cos() * origin_radius;
+            let y = (height * 0.5) + angle.sin() * origin_radius;
+            let drift_angle = angle + lerp(-0.35, 0.35, pseudo_rand01(rng));
+            OverlayParticle {
+                x,
+                y,
+                vx: drift_angle.cos() * speed + lerp(-drift, drift, pseudo_rand01(rng)),
+                vy: drift_angle.sin() * speed + lerp(-drift, drift, pseudo_rand01(rng)),
+                life,
+                age: 0.0,
+                size,
+                alpha: cfg.particles_alpha,
+            }
+        }
+        _ => OverlayParticle {
+            x: pseudo_rand01(rng) * width,
+            y: height - lerp(4.0, height * 0.08, pseudo_rand01(rng)),
+            vx: lerp(-drift, drift, pseudo_rand01(rng)),
+            vy: -speed,
+            life,
+            age: 0.0,
+            size,
+            alpha: cfg.particles_alpha,
+        },
+    }
+}
+
+fn draw_particles(
+    ctx: &gtk::cairo::Context,
+    particles: &[OverlayParticle],
+    color: RgbaColor,
+    color2: RgbaColor,
+    glow_strength: f64,
+) {
+    for (index, particle) in particles.iter().enumerate() {
+        let t = if particle.life <= 0.0 {
+            1.0
+        } else {
+            (particle.age / particle.life).clamp(0.0, 1.0)
+        };
+        let blend = ((index as f64 * 0.137) % 1.0).clamp(0.0, 1.0);
+        let c = vivid_color(gradient_color(color, color2, blend));
+        let alpha = (particle.alpha * (1.0 - t)).clamp(0.0, 1.0);
+        if alpha <= 0.001 {
+            continue;
+        }
+        let glow_color = vivid_color(gradient_color(color2, color, 0.35));
+        let glow_layers = if glow_strength <= 0.01 {
+            0
+        } else if glow_strength < 1.2 {
+            1
+        } else if glow_strength < 2.0 {
+            2
+        } else {
+            3
+        };
+        for pass in (1..=glow_layers).rev() {
+            let pass_scale = 1.0 + (pass as f64 * 0.75 * glow_strength);
+            let pass_alpha = (alpha * 0.18 * glow_strength / pass as f64).clamp(0.0, 0.55);
+            ctx.set_source_rgba(glow_color.r, glow_color.g, glow_color.b, pass_alpha);
+            ctx.arc(
+                particle.x,
+                particle.y,
+                (particle.size.max(0.5) * pass_scale).max(0.8),
+                0.0,
+                PI * 2.0,
+            );
+            let _ = ctx.fill();
+        }
+        ctx.set_source_rgba(c.r, c.g, c.b, alpha);
+        ctx.arc(particle.x, particle.y, particle.size.max(0.5), 0.0, PI * 2.0);
+        let _ = ctx.fill();
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_visual_layer_with_effects(
+    ctx: &gtk::cairo::Context,
+    width: f64,
+    height: f64,
+    values: &[f64],
+    mode: VisualMode,
+    style: RenderStyle,
+    color: RgbaColor,
+    color2: RgbaColor,
+    bar_thickness: f64,
+    bar_gap: f64,
+    bar_corner_radius: f64,
+    segmented_bars: bool,
+    segment_length: f64,
+    segment_gap: f64,
+    bars_wave_thickness: f64,
+    bars_dot_radius: f64,
+    ring_wave_thickness: f64,
+    ring_dot_radius: f64,
+    bars_wave_roundness: f64,
+    ring_wave_roundness: f64,
+    ring_fill_softness: f64,
+    ring_fill_overlap_px: f64,
+    line_max_height_ratio: f64,
+    ring_inner_ratio: f64,
+    ring_length_ratio: f64,
+    polygon_sides: usize,
+    alpha_scale: f64,
+    neon_enabled: bool,
+    neon_strength: f64,
+    neon_layers: usize,
+    base_light_enabled: bool,
+    base_light_height: f64,
+    base_light_alpha: f64,
+    base_light_color: RgbaColor,
+) {
+    if neon_enabled && neon_strength > 0.01 {
+        let glow_layers = neon_layers.max(1);
+        for pass in (1..=glow_layers).rev() {
+            let widen = 1.0 + (pass as f64 * 0.28 * neon_strength);
+            let glow_alpha = (alpha_scale * 0.12 * neon_strength / pass as f64).clamp(0.0, 0.5);
+            let glow_color = vivid_color(gradient_color(color2, color, 0.35));
+            draw_visual_layer(
+                ctx,
+                width,
+                height,
+                values,
+                mode,
+                style,
+                glow_color,
+                glow_color,
+                bar_thickness * widen,
+                bar_gap,
+                bar_corner_radius * widen,
+                segmented_bars,
+                segment_length * widen,
+                segment_gap,
+                bars_wave_thickness * widen,
+                bars_dot_radius * widen,
+                ring_wave_thickness * widen,
+                ring_dot_radius * widen,
+                bars_wave_roundness,
+                ring_wave_roundness,
+                ring_fill_softness,
+                ring_fill_overlap_px * widen,
+                line_max_height_ratio,
+                ring_inner_ratio,
+                ring_length_ratio,
+                polygon_sides,
+                glow_alpha,
+                false,
+                base_light_height,
+                base_light_alpha,
+                base_light_color,
+            );
+        }
+    }
+
+    draw_visual_layer(
+        ctx,
+        width,
+        height,
+        values,
+        mode,
+        style,
+        color,
+        color2,
+        bar_thickness,
+        bar_gap,
+        bar_corner_radius,
+        segmented_bars,
+        segment_length,
+        segment_gap,
+        bars_wave_thickness,
+        bars_dot_radius,
+        ring_wave_thickness,
+        ring_dot_radius,
+        bars_wave_roundness,
+        ring_wave_roundness,
+        ring_fill_softness,
+        ring_fill_overlap_px,
+        line_max_height_ratio,
+        ring_inner_ratio,
+        ring_length_ratio,
+        polygon_sides,
+        alpha_scale,
+        base_light_enabled,
+        base_light_height,
+        base_light_alpha,
+        base_light_color,
+    );
 }
 
 fn stroke_smooth_path(
@@ -1270,6 +2299,10 @@ fn draw_line_layout(
     wave_roundness: f64,
     max_height_ratio: f64,
     alpha_scale: f64,
+    base_light_enabled: bool,
+    base_light_height: f64,
+    base_light_alpha: f64,
+    base_light_color: RgbaColor,
 ) {
     let count = values.len().max(1) as f64;
     let total_nominal = (count * bar_thickness) + ((count - 1.0).max(0.0) * gap);
@@ -1289,6 +2322,30 @@ fn draw_line_layout(
         segment_length,
         segment_gap,
     };
+    if base_light_enabled && base_light_alpha > 0.001 {
+        let light_h = base_light_height.clamp(2.0, height * 0.35);
+        let y0 = (height - light_h).max(0.0);
+        let c = vivid_color(base_light_color);
+        let gradient = gtk::cairo::LinearGradient::new(0.0, height, 0.0, y0);
+        gradient.add_color_stop_rgba(
+            0.0,
+            c.r,
+            c.g,
+            c.b,
+            (c.a * alpha_scale * base_light_alpha).clamp(0.0, 1.0),
+        );
+        gradient.add_color_stop_rgba(
+            0.45,
+            c.r,
+            c.g,
+            c.b,
+            (c.a * alpha_scale * base_light_alpha * 0.42).clamp(0.0, 0.72),
+        );
+        gradient.add_color_stop_rgba(1.0, c.r, c.g, c.b, 0.0);
+        ctx.rectangle(0.0, y0, width, light_h);
+        let _ = ctx.set_source(&gradient);
+        let _ = ctx.fill();
+    }
     let mut wave_points: Vec<(f64, f64)> = Vec::with_capacity(values.len());
     for (index, value) in values.iter().enumerate() {
         let normalized = value.clamp(0.0, 1.0);
@@ -1727,6 +2784,10 @@ fn draw_visual_layer(
     ring_length_ratio: f64,
     polygon_sides: usize,
     alpha_scale: f64,
+    base_light_enabled: bool,
+    base_light_height: f64,
+    base_light_alpha: f64,
+    base_light_color: RgbaColor,
 ) {
     match mode {
         VisualMode::Bars => match style {
@@ -1764,10 +2825,14 @@ fn draw_visual_layer(
                 segment_gap,
                 bars_wave_thickness,
                 bars_dot_radius,
-                bars_wave_roundness,
-                line_max_height_ratio,
-                alpha_scale,
-            ),
+                    bars_wave_roundness,
+                    line_max_height_ratio,
+                    alpha_scale,
+                    base_light_enabled,
+                    base_light_height,
+                    base_light_alpha,
+                    base_light_color,
+                ),
         },
         VisualMode::Ring => match style {
             RenderStyle::Triangle | RenderStyle::Polygon => {
@@ -1852,6 +2917,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.present();
     });
 
-    app.run_with_args(&["kitsune-overlay"]);
+    app.run();
     Ok(())
 }

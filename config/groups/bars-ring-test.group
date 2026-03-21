@@ -1,0 +1,8 @@
+# Bars + Ring test group
+# Minimal composition to validate that line and radial layers are both visible.
+#
+# layer format:
+# layer=enabled,mode,style,profile,color,alpha[,runtime][,rotate][...][,color_mode=static|accent_light|accent_mid|accent_dark]
+
+layer=1,bars,bars,bars_balanced,#f4f7fb,0.34,standard,0,color_mode=accent_light
+layer=1,ring,bars,ring_video_uno,#19f0ff,0.52,standard,0,color_mode=accent_mid

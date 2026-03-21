@@ -42,6 +42,8 @@ BASE_COLOR="$(cfg_get color '#ff2f8f')"
 OUTPUT_TARGET="$(cfg_get output_target layer-shell)"
 
 mkdir -p "$RUN_PREFIX"
+mkdir -p "$(dirname "${LOG_PREFIX}-layer.log")"
+: > "${LOG_PREFIX}-layer.log"
 
 if [[ -f "$PID_MPV" || -f "$PID_LAYER" || -f "$PID_CAVA" || -f "$PID_REN" || -f "$PID_COLOR" || -f "$PID_MON" ]]; then
   ./scripts/stop.sh || true
@@ -113,7 +115,8 @@ echo "[i] Building GTK overlay frontend..."
 cargo build --release --bin kitsune-overlay
 
 echo "[i] Starting gtk4-layer-shell overlay on ${TARGET_MONITOR}..."
-./target/release/kitsune-overlay --config "$CFG" >"${LOG_PREFIX}-layer.log" 2>&1 &
+export KITSUNE_CFG="$CFG"
+./target/release/kitsune-overlay >"${LOG_PREFIX}-layer.log" 2>&1 &
 echo $! > "$PID_LAYER"
 
 if [[ "$DYNAMIC_COLOR" == "1" ]]; then

@@ -6,6 +6,7 @@ OUT_FILE="${2:-/tmp/kitsune-accent.hex}"
 INTERVAL="${3:-2}"
 PALETTE_FILE="${KITSUNE_PALETTE_FILE:-${OUT_FILE%.hex}.palette}"
 MODE="${4:-watch}"
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 
 if ! [[ "$INTERVAL" =~ ^[0-9]+$ ]] || [[ "$INTERVAL" -lt 1 ]]; then
   echo "Uso: $0 <monitor> <out_file> <intervalo_segundos>=1.."
@@ -15,6 +16,23 @@ fi
 last_wall=""
 last_color=""
 last_warn_ts=0
+
+cfg_get() {
+  local key="$1"
+  local def="$2"
+  local v
+  v="$(awk -F'=' -v k="$key" '$1 ~ "^[[:space:]]*"k"[[:space:]]*$" {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$CFG" 2>/dev/null || true)"
+  if [[ -z "$v" ]]; then
+    echo "$def"
+  else
+    echo "$v"
+  fi
+}
+
+PALETTE_ROLE_METHOD="$(cfg_get palette_role_method luma)"
+ACCENT_LIGHT_TARGET_LUMA="$(cfg_get accent_light_target_luma 0.78)"
+ACCENT_MID_TARGET_LUMA="$(cfg_get accent_mid_target_luma 0.52)"
+ACCENT_DARK_TARGET_LUMA="$(cfg_get accent_dark_target_luma 0.26)"
 
 extract_wallpaper_path() {
   local mon="$1"
@@ -153,6 +171,10 @@ extract_wallpaper_luma() {
 extract_palette_roles() {
   local img="$1"
   local bg_luma="$2"
+  local role_method="${3:-luma}"
+  local target_light="${4:-0.78}"
+  local target_mid="${5:-0.52}"
+  local target_dark="${6:-0.26}"
   local hist=""
   if command -v magick >/dev/null 2>&1; then
     hist="$(magick "$img" -resize 96x96 -colors 18 -format "%c" histogram:info:- 2>/dev/null || true)"
@@ -166,6 +188,10 @@ extract_palette_roles() {
     const fs = require("node:fs");
     const input = fs.readFileSync(0, "utf8");
     const bg = Math.max(0, Math.min(1, Number(process.argv[1] || "0.5")));
+    const method = String(process.argv[2] || "luma").toLowerCase();
+    const forcedLight = Number(process.argv[3]);
+    const forcedMid = Number(process.argv[4]);
+    const forcedDark = Number(process.argv[5]);
     function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
     function rgbToHex(r,g,b){
       const toHex = (v) => {
@@ -207,6 +233,13 @@ extract_palette_roles() {
       const weightBonus = Math.min(candidate.count / 2000, 0.55);
       return satBonus + weightBonus - lumPenalty;
     }
+    function dominantChannel(candidate, method) {
+      const [r,g,b] = hexToRgb(candidate.hex) || [0,0,0];
+      if (method === "rgb_r") return r >= g && r >= b && (r - Math.max(g, b)) >= 0.05;
+      if (method === "rgb_g") return g >= r && g >= b && (g - Math.max(r, b)) >= 0.05;
+      if (method === "rgb_b") return b >= r && b >= g && (b - Math.max(r, g)) >= 0.05;
+      return true;
+    }
     function distinctEnough(a, b) {
       const ar = hexToRgb(a.hex);
       const br = hexToRgb(b.hex);
@@ -236,32 +269,38 @@ extract_palette_roles() {
       .sort((a, b) => b.count - a.count)
       .slice(0, 12);
     if (candidates.length === 0) process.exit(0);
-    const midTarget = bg < 0.45 ? 0.68 : (bg > 0.62 ? 0.34 : 0.52);
-    const lightTarget = clamp(midTarget + 0.20, 0.60, 0.88);
-    const darkTarget = clamp(midTarget - 0.22, 0.12, 0.36);
+    const filtered = candidates.filter((candidate) => dominantChannel(candidate, method));
+    const activeCandidates = filtered.length >= 3 ? filtered : filtered.length > 0 ? filtered : candidates;
+    const autoMidTarget = bg < 0.45 ? 0.68 : (bg > 0.62 ? 0.34 : 0.52);
+    const midTarget = Number.isFinite(forcedMid) ? clamp(forcedMid, 0.0, 1.0) : autoMidTarget;
+    const lightTarget = Number.isFinite(forcedLight) ? clamp(forcedLight, 0.0, 1.0) : clamp(midTarget + 0.20, 0.60, 0.88);
+    const darkTarget = Number.isFinite(forcedDark) ? clamp(forcedDark, 0.0, 1.0) : clamp(midTarget - 0.22, 0.12, 0.36);
     const choose = (targetL, used) => {
-      return candidates
+      return activeCandidates
         .filter((candidate) => used.every((prev) => distinctEnough(prev, candidate)))
         .map((candidate) => ({ candidate, score: scoreCandidate(candidate, targetL) }))
         .sort((a, b) => b.score - a.score)[0]?.candidate ?? null;
     };
     const chosen = [];
-    const light = choose(lightTarget, chosen) ?? candidates[0];
+    const light = choose(lightTarget, chosen) ?? activeCandidates[0];
     chosen.push(light);
-    const mid = choose(midTarget, chosen) ?? candidates.find((c) => c.hex !== light.hex) ?? light;
+    const mid = choose(midTarget, chosen) ?? activeCandidates.find((c) => c.hex !== light.hex) ?? light;
     chosen.push(mid);
-    const dark = choose(darkTarget, chosen) ?? candidates.find((c) => c.hex !== light.hex && c.hex !== mid.hex) ?? mid;
+    const dark = choose(darkTarget, chosen) ?? activeCandidates.find((c) => c.hex !== light.hex && c.hex !== mid.hex) ?? mid;
     process.stdout.write(
       "accent_light=" + light.hex + "\n" +
       "accent_mid=" + mid.hex + "\n" +
       "accent_dark=" + dark.hex + "\n"
     );
-  ' "$bg_luma" 2>/dev/null || true
+  ' "$bg_luma" "$role_method" "$target_light" "$target_mid" "$target_dark" 2>/dev/null || true
 }
 
 derive_palette_roles() {
   local hex="$1"
   local bg_luma="$2"
+  local target_light="${3:-0.78}"
+  local target_mid="${4:-0.52}"
+  local target_dark="${5:-0.26}"
   node -e '
     function hexToRgb(h){
       h = String(h || "").trim().replace(/^#/, "");
@@ -316,13 +355,17 @@ derive_palette_roles() {
     function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
     const base = process.argv[1];
     const bg = clamp(Number(process.argv[2] || "0.5"), 0, 1);
+    const forcedLight = Number(process.argv[3]);
+    const forcedMid = Number(process.argv[4]);
+    const forcedDark = Number(process.argv[5]);
     const rgb = hexToRgb(base);
     if (!rgb) process.exit(1);
     let [h,s] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
     s = Math.max(s, 0.56);
-    const midTarget = bg < 0.45 ? 0.72 : (bg > 0.62 ? 0.30 : (bg < 0.53 ? 0.64 : 0.36));
-    const lightTarget = clamp(midTarget + 0.17, 0.58, 0.86);
-    const darkTarget = clamp(midTarget - 0.19, 0.14, 0.34);
+    const autoMidTarget = bg < 0.45 ? 0.72 : (bg > 0.62 ? 0.30 : (bg < 0.53 ? 0.64 : 0.36));
+    const midTarget = Number.isFinite(forcedMid) ? clamp(forcedMid, 0.0, 1.0) : autoMidTarget;
+    const lightTarget = Number.isFinite(forcedLight) ? clamp(forcedLight, 0.0, 1.0) : clamp(midTarget + 0.17, 0.58, 0.86);
+    const darkTarget = Number.isFinite(forcedDark) ? clamp(forcedDark, 0.0, 1.0) : clamp(midTarget - 0.19, 0.14, 0.34);
     const light = hslToRgb(h, clamp(s * 0.92, 0.48, 0.90), lightTarget);
     const mid = hslToRgb(h, clamp(s, 0.56, 0.96), midTarget);
     const dark = hslToRgb(h, clamp(s * 0.86, 0.42, 0.88), darkTarget);
@@ -331,7 +374,7 @@ derive_palette_roles() {
       "accent_mid=" + rgbToHex(mid[0], mid[1], mid[2]).toUpperCase() + "\n" +
       "accent_dark=" + rgbToHex(dark[0], dark[1], dark[2]).toUpperCase() + "\n"
     );
-  ' "$hex" "$bg_luma" 2>/dev/null || true
+  ' "$hex" "$bg_luma" "$target_light" "$target_mid" "$target_dark" 2>/dev/null || true
 }
 
 contrast_accent_color() {
@@ -405,6 +448,8 @@ contrast_accent_color() {
 }
 
 echo "[colorwatch] monitor=$MONITOR out=$OUT_FILE interval=${INTERVAL}s mode=${MODE}"
+echo "[colorwatch] palette_role_method=${PALETTE_ROLE_METHOD}"
+echo "[colorwatch] target_luma light=${ACCENT_LIGHT_TARGET_LUMA} mid=${ACCENT_MID_TARGET_LUMA} dark=${ACCENT_DARK_TARGET_LUMA}"
 echo "[colorwatch] palette=$PALETTE_FILE"
 
 while true; do
@@ -420,9 +465,9 @@ while true; do
     c="$(contrast_accent_color "$c_raw" "$bg_luma")"
     if [[ -n "$c" && "$c" != "$last_color" ]]; then
       printf '%s\n' "$c" > "$OUT_FILE"
-      palette="$(extract_palette_roles "$wall" "$bg_luma")"
+      palette="$(extract_palette_roles "$wall" "$bg_luma" "$PALETTE_ROLE_METHOD" "$ACCENT_LIGHT_TARGET_LUMA" "$ACCENT_MID_TARGET_LUMA" "$ACCENT_DARK_TARGET_LUMA")"
       if [[ -z "$palette" ]]; then
-        palette="$(derive_palette_roles "$c" "$bg_luma")"
+        palette="$(derive_palette_roles "$c" "$bg_luma" "$ACCENT_LIGHT_TARGET_LUMA" "$ACCENT_MID_TARGET_LUMA" "$ACCENT_DARK_TARGET_LUMA")"
       fi
       if [[ -n "$palette" ]]; then
         printf '%s' "$palette" > "$PALETTE_FILE"
