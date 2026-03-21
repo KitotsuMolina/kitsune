@@ -565,6 +565,12 @@ cmd_start() {
   cfg_set_in_file "$cfg_inst" color_source_file "/tmp/kitsune-accent-${id}.hex"
   cfg_set_in_file "$cfg_inst" color_palette_file "/tmp/kitsune-accent-${id}.palette"
   cfg_set_in_file "$cfg_inst" monitor_fallback_enabled "0"
+  local configured_group_file resolved_group_file
+  configured_group_file="$(cfg_get group_file ./config/groups/default.group)"
+  resolved_group_file="$(resolve_group_file "$configured_group_file" || true)"
+  if [[ -n "$resolved_group_file" ]]; then
+    cfg_set_in_file "$cfg_inst" group_file "$resolved_group_file"
+  fi
 
   if [[ -n "$target" ]]; then
     cfg_set_in_file "$cfg_inst" output_target "$target"
