@@ -49,6 +49,8 @@ enum RenderStyle {
     BarsFill,
     Waves,
     WavesKwy,
+    WavesOcean,
+    WavesOceanFill,
     WavesFill,
     Dots,
     Triangle,
@@ -80,6 +82,8 @@ impl RenderStyle {
             "bars_fill" | "bars-fill" => Self::BarsFill,
             "waves" | "wave" => Self::Waves,
             "waves_kwy" | "waves-kwy" | "kwy_waves" | "kwy-waves" | "ribbon" => Self::WavesKwy,
+            "waves_ocean" | "waves-ocean" | "ocean" | "ocean_waves" | "ocean-waves" => Self::WavesOcean,
+            "waves_ocean_fill" | "waves-ocean-fill" | "ocean_fill" | "ocean-fill" => Self::WavesOceanFill,
             "waves_fill" | "waves-fill" | "wavefill" => Self::WavesFill,
             "dots" | "dot" => Self::Dots,
             "triangle" => Self::Triangle,
@@ -1179,6 +1183,74 @@ fn stroke_smooth_path(
     let _ = ctx.stroke();
 }
 
+fn append_smooth_path(
+    ctx: &gtk::cairo::Context,
+    points: &[(f64, f64)],
+    closed: bool,
+    roundness: f64,
+) {
+    if points.is_empty() {
+        return;
+    }
+    let first = points[0];
+    ctx.new_path();
+    ctx.move_to(first.0, first.1);
+
+    if points.len() == 1 {
+        if closed {
+            ctx.close_path();
+        }
+        return;
+    }
+
+    let roundness = roundness.clamp(0.05, 1.0);
+    for index in 1..points.len() {
+        let (prev_x, prev_y) = points[index - 1];
+        let (x, y) = points[index];
+        let dx = x - prev_x;
+        let ctrl_dx = dx * 0.5 * roundness;
+        ctx.curve_to(prev_x + ctrl_dx, prev_y, x - ctrl_dx, y, x, y);
+    }
+
+    if closed {
+        let (last_x, last_y) = points[points.len() - 1];
+        let dx = first.0 - last_x;
+        let ctrl_dx = dx * 0.5 * roundness;
+        ctx.curve_to(last_x + ctrl_dx, last_y, first.0 - ctrl_dx, first.1, first.0, first.1);
+        ctx.close_path();
+    }
+}
+
+fn build_ocean_wave_points(
+    wave_points: &[(f64, f64)],
+    height: f64,
+    max_height_ratio: f64,
+) -> Vec<(f64, f64)> {
+    if wave_points.len() < 2 {
+        return wave_points.to_vec();
+    }
+    let crest_room = (height * max_height_ratio).max(8.0);
+    let amplitude = (crest_room * 0.08).clamp(4.0, 26.0);
+    let count = wave_points.len();
+    let mut out = Vec::with_capacity(count * 2 - 1);
+    for (index, point) in wave_points.iter().enumerate() {
+        let t = if count <= 1 { 0.0 } else { index as f64 / (count - 1) as f64 };
+        let base_phase = t * PI * 2.6;
+        let sway = base_phase.sin() * amplitude;
+        out.push((point.0, (point.1 + sway).clamp(0.0, height)));
+        if let Some(next) = wave_points.get(index + 1).copied() {
+            let mid_x = (point.0 + next.0) * 0.5;
+            let mid_t = if count <= 1 { t } else { (index as f64 + 0.5) / (count - 1) as f64 };
+            let mid_phase = mid_t * PI * 2.6;
+            let mid_y = ((point.1 + next.1) * 0.5)
+                + (mid_phase.sin() * amplitude * 1.2)
+                - (mid_phase.cos() * amplitude * 0.35);
+            out.push((mid_x, mid_y.clamp(0.0, height)));
+        }
+    }
+    out
+}
+
 fn draw_line_layout(
     ctx: &gtk::cairo::Context,
     width: f64,
@@ -1232,7 +1304,7 @@ fn draw_line_layout(
                 ctx.arc(x + (bar_width * 0.5), y + radius, radius, 0.0, PI * 2.0);
                 let _ = ctx.fill();
             }
-            RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesFill => {
+            RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesOcean | RenderStyle::WavesOceanFill | RenderStyle::WavesFill => {
                 wave_points.push((x + (bar_width * 0.5), y));
             }
             _ => {
@@ -1255,41 +1327,145 @@ fn draw_line_layout(
             }
         }
     }
-    if matches!(style, RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesFill) && !wave_points.is_empty() {
-        let wave_color = vivid_color(color2);
-        ctx.set_source_rgba(
-            wave_color.r,
-            wave_color.g,
-            wave_color.b,
-            (wave_color.a * alpha_scale).clamp(0.0, 1.0),
-        );
-        if style == RenderStyle::WavesKwy {
-            stroke_smooth_path(ctx, &wave_points, false, wave_thickness.max((bar_width * 1.05).max(3.5)), wave_roundness.max(0.82));
-        } else if style == RenderStyle::WavesFill {
-            ctx.new_path();
-            for (idx, (x, y)) in wave_points.iter().enumerate() {
-                if idx == 0 {
-                    ctx.move_to(*x, *y);
-                } else {
-                    ctx.line_to(*x, *y);
-                }
-            }
-            let right_edge = start_x + rendered_total;
-            let left_edge = start_x;
-            ctx.line_to(right_edge, height);
-            ctx.line_to(left_edge, height);
-            ctx.close_path();
-            let _ = ctx.fill();
+    if matches!(style, RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesOcean | RenderStyle::WavesOceanFill | RenderStyle::WavesFill) && !wave_points.is_empty() {
+        let ocean_points = if matches!(style, RenderStyle::WavesOcean | RenderStyle::WavesOceanFill) {
+            build_ocean_wave_points(&wave_points, height, max_height_ratio)
         } else {
+            wave_points.clone()
+        };
+        if style == RenderStyle::WavesKwy {
+            let wave_color = vivid_color(color2);
+            ctx.set_source_rgba(
+                wave_color.r,
+                wave_color.g,
+                wave_color.b,
+                (wave_color.a * alpha_scale).clamp(0.0, 1.0),
+            );
+            stroke_smooth_path(ctx, &ocean_points, false, wave_thickness.max((bar_width * 1.05).max(3.5)), wave_roundness.max(0.82));
+        } else if style == RenderStyle::WavesOcean {
+            let wave_color = vivid_color(color2);
+            ctx.set_source_rgba(
+                wave_color.r,
+                wave_color.g,
+                wave_color.b,
+                (wave_color.a * alpha_scale * 0.95).clamp(0.0, 1.0),
+            );
+            stroke_smooth_path(
+                ctx,
+                &ocean_points,
+                false,
+                wave_thickness.max((bar_width * 0.96).max(3.1)),
+                wave_roundness.max(0.90),
+            );
+        } else if style == RenderStyle::WavesOceanFill {
+            let fill_color = vivid_color(color2);
+            append_smooth_path(ctx, &ocean_points, false, wave_roundness.max(0.90));
+            if let (Some((first_x, _)), Some((last_x, _))) = (ocean_points.first().copied(), ocean_points.last().copied()) {
+                ctx.line_to(last_x, height);
+                ctx.line_to(first_x, height);
+                ctx.close_path();
+                let gradient = gtk::cairo::LinearGradient::new(0.0, height, 0.0, height * 0.12);
+                gradient.add_color_stop_rgba(
+                    0.00,
+                    fill_color.r,
+                    fill_color.g,
+                    fill_color.b,
+                    (fill_color.a * alpha_scale * 0.78).clamp(0.0, 0.88),
+                );
+                gradient.add_color_stop_rgba(
+                    0.50,
+                    fill_color.r,
+                    fill_color.g,
+                    fill_color.b,
+                    (fill_color.a * alpha_scale * 0.48).clamp(0.0, 0.58),
+                );
+                gradient.add_color_stop_rgba(
+                    1.00,
+                    fill_color.r,
+                    fill_color.g,
+                    fill_color.b,
+                    (fill_color.a * alpha_scale * 0.18).clamp(0.0, 0.26),
+                );
+                let _ = ctx.set_source(&gradient);
+                let _ = ctx.fill();
+            }
+            let stroke_color = vivid_color(color);
+            ctx.set_source_rgba(
+                stroke_color.r,
+                stroke_color.g,
+                stroke_color.b,
+                (stroke_color.a * alpha_scale).clamp(0.0, 1.0),
+            );
+            stroke_smooth_path(
+                ctx,
+                &ocean_points,
+                false,
+                wave_thickness.max((bar_width * 0.94).max(3.0)),
+                wave_roundness.max(0.92),
+            );
+        } else if style == RenderStyle::WavesFill {
+            let fill_color = vivid_color(color2);
+            append_smooth_path(ctx, &ocean_points, false, wave_roundness.max(0.78));
+            if let (Some((first_x, _)), Some((last_x, _))) = (ocean_points.first().copied(), ocean_points.last().copied()) {
+                ctx.line_to(last_x, height);
+                ctx.line_to(first_x, height);
+                ctx.close_path();
+                let gradient = gtk::cairo::LinearGradient::new(0.0, height, 0.0, height * 0.18);
+                gradient.add_color_stop_rgba(
+                    0.00,
+                    fill_color.r,
+                    fill_color.g,
+                    fill_color.b,
+                    (fill_color.a * alpha_scale * 0.72).clamp(0.0, 0.82),
+                );
+                gradient.add_color_stop_rgba(
+                    0.55,
+                    fill_color.r,
+                    fill_color.g,
+                    fill_color.b,
+                    (fill_color.a * alpha_scale * 0.42).clamp(0.0, 0.52),
+                );
+                gradient.add_color_stop_rgba(
+                    1.00,
+                    fill_color.r,
+                    fill_color.g,
+                    fill_color.b,
+                    (fill_color.a * alpha_scale * 0.16).clamp(0.0, 0.24),
+                );
+                let _ = ctx.set_source(&gradient);
+                let _ = ctx.fill();
+            }
+            let stroke_color = vivid_color(color);
+            ctx.set_source_rgba(
+                stroke_color.r,
+                stroke_color.g,
+                stroke_color.b,
+                (stroke_color.a * alpha_scale).clamp(0.0, 1.0),
+            );
+            stroke_smooth_path(
+                ctx,
+                &ocean_points,
+                false,
+                wave_thickness.max((bar_width * 0.82).max(2.8)),
+                wave_roundness.max(0.78),
+            );
+        } else {
+            let wave_color = vivid_color(color2);
+            ctx.set_source_rgba(
+                wave_color.r,
+                wave_color.g,
+                wave_color.b,
+                (wave_color.a * alpha_scale).clamp(0.0, 1.0),
+            );
             ctx.new_path();
-            for (idx, (x, y)) in wave_points.iter().enumerate() {
+            for (idx, (x, y)) in ocean_points.iter().enumerate() {
                 if idx == 0 {
                     ctx.move_to(*x, *y);
                 } else {
                     ctx.line_to(*x, *y);
                 }
             }
-            stroke_smooth_path(ctx, &wave_points, false, wave_thickness.max((bar_width * 0.75).max(2.5)), wave_roundness);
+            stroke_smooth_path(ctx, &ocean_points, false, wave_thickness.max((bar_width * 0.75).max(2.5)), wave_roundness);
         }
     }
 }
@@ -1317,7 +1493,7 @@ fn draw_radial_layout(
     length_ratio: f64,
     alpha_scale: f64,
 ) {
-    if matches!(style, RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesFill) {
+    if matches!(style, RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesOcean | RenderStyle::WavesOceanFill | RenderStyle::WavesFill) {
         let cx = width * 0.5;
         let cy = height * 0.5;
         let inner = width.min(height) * inner_ratio;
@@ -1339,7 +1515,7 @@ fn draw_radial_layout(
             wave_color.b,
             (wave_color.a * alpha_scale).clamp(0.0, 1.0),
         );
-        if style == RenderStyle::WavesFill {
+        if matches!(style, RenderStyle::WavesFill | RenderStyle::WavesOceanFill) {
             ctx.new_path();
             if let Some((first_x, first_y)) = wave_points.first().copied() {
                 ctx.move_to(first_x, first_y);
@@ -1355,11 +1531,19 @@ fn draw_radial_layout(
         } else {
             let thickness = if style == RenderStyle::WavesKwy {
                 wave_thickness.max((bar_thickness * 1.05).max(3.5))
+            } else if style == RenderStyle::WavesOceanFill {
+                wave_thickness.max((bar_thickness * 0.95).max(3.1))
+            } else if style == RenderStyle::WavesOcean {
+                wave_thickness.max((bar_thickness * 0.95).max(3.1))
             } else {
                 wave_thickness.max((bar_thickness * 0.85).max(2.75))
             };
             let roundness = if style == RenderStyle::WavesKwy {
                 wave_roundness.max(0.82)
+            } else if style == RenderStyle::WavesOceanFill {
+                wave_roundness.max(0.90)
+            } else if style == RenderStyle::WavesOcean {
+                wave_roundness.max(0.90)
             } else {
                 wave_roundness
             };

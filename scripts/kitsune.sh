@@ -50,8 +50,8 @@ Configuracion:
   config list [--effective]
 
 Visual:
-  visual <bars|ring> <bars|bars_fill|waves|waves_kwy|waves_fill|dots|triangle|polygon>
-  style <bars|ring> <bars|bars_fill|waves|waves_kwy|waves_fill|dots|triangle|polygon>
+  visual <bars|ring> <bars|bars_fill|waves|waves_kwy|waves_ocean|waves_ocean_fill|waves_fill|dots|triangle|polygon>
+  style <bars|ring> <bars|bars_fill|waves|waves_kwy|waves_ocean|waves_ocean_fill|waves_fill|dots|triangle|polygon>
   mode <bars|ring>
   debug overlay <0|1> [--apply]
 
@@ -679,6 +679,20 @@ cmd_stop() {
   done
 
   if [[ -z "$monitor" ]]; then
+    local any=0 id cfg_inst run_pref mon
+    for id in $(instance_ids_all); do
+      cfg_inst="$(instance_cfg_path "$id")"
+      run_pref="$(instance_run_prefix "$id")"
+      [[ -f "$cfg_inst" ]] || continue
+      any=1
+      mon="$(instance_monitor_from_cfg "$cfg_inst")"
+      echo "[i] Stopping instance id=$id monitor=${mon:-$id}"
+      KITSUNE_CFG="$cfg_inst" KITSUNE_RUN_PREFIX="$run_pref" ./scripts/stop.sh || true
+    done
+    if [[ "$any" -eq 0 ]]; then
+      ./scripts/stop.sh
+      return
+    fi
     ./scripts/stop.sh
     return
   fi
@@ -1745,7 +1759,7 @@ cmd_group_validate() {
     fi
 
     case "$style" in
-      bars|bars_fill|waves|waves_kwy|waves_fill|dots|triangle|polygon) ;;
+      bars|bars_fill|waves|waves_kwy|waves_ocean|waves_ocean_fill|waves_fill|dots|triangle|polygon) ;;
       *)
         echo "[x] linea $ln: style invalido '$style'"
         errors=$((errors + 1))
