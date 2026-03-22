@@ -136,6 +136,44 @@ impl OverlayLayout {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BarsAnchor {
+    Bottom,
+    Top,
+    Left,
+    Right,
+}
+
+impl BarsAnchor {
+    fn from_str(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "top" => Self::Top,
+            "left" => Self::Left,
+            "right" => Self::Right,
+            _ => Self::Bottom,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BarsDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl BarsDirection {
+    fn from_str(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "down" => Self::Down,
+            "left" => Self::Left,
+            "right" => Self::Right,
+            _ => Self::Up,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Config {
     monitor: String,
@@ -157,6 +195,8 @@ struct Config {
     segment_length: f64,
     segment_gap: f64,
     line_max_height_ratio: f64,
+    bars_anchor: BarsAnchor,
+    bars_direction: BarsDirection,
     ring_inner_ratio: f64,
     ring_length_ratio: f64,
     bars_wave_thickness: f64,
@@ -588,6 +628,32 @@ fn parse_config(path: &Path) -> Config {
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.68)
         .clamp(0.05, 1.0);
+    let bars_anchor = map
+        .get("bars_anchor")
+        .map(|v| BarsAnchor::from_str(v))
+        .unwrap_or(BarsAnchor::Bottom);
+    let raw_bars_direction = map
+        .get("bars_direction")
+        .map(|v| BarsDirection::from_str(v))
+        .unwrap_or(BarsDirection::Up);
+    let bars_direction = match bars_anchor {
+        BarsAnchor::Bottom => match raw_bars_direction {
+            BarsDirection::Up | BarsDirection::Down => raw_bars_direction,
+            _ => BarsDirection::Up,
+        },
+        BarsAnchor::Top => match raw_bars_direction {
+            BarsDirection::Up | BarsDirection::Down => raw_bars_direction,
+            _ => BarsDirection::Down,
+        },
+        BarsAnchor::Left => match raw_bars_direction {
+            BarsDirection::Left | BarsDirection::Right => raw_bars_direction,
+            _ => BarsDirection::Right,
+        },
+        BarsAnchor::Right => match raw_bars_direction {
+            BarsDirection::Left | BarsDirection::Right => raw_bars_direction,
+            _ => BarsDirection::Left,
+        },
+    };
     let ring_inner_ratio = map
         .get("ring_inner_ratio")
         .and_then(|v| v.parse::<f64>().ok())
@@ -809,6 +875,8 @@ fn parse_config(path: &Path) -> Config {
         segment_length,
         segment_gap,
         line_max_height_ratio,
+        bars_anchor,
+        bars_direction,
         ring_inner_ratio,
         ring_length_ratio,
         bars_wave_thickness,
@@ -1524,6 +1592,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let segment_length = cfg.segment_length;
     let segment_gap = cfg.segment_gap;
     let line_max_height_ratio = cfg.line_max_height_ratio;
+    let bars_anchor = cfg.bars_anchor;
+    let bars_direction = cfg.bars_direction;
     let ring_inner_ratio = cfg.ring_inner_ratio;
     let ring_length_ratio = cfg.ring_length_ratio;
     let bars_wave_thickness = cfg.bars_wave_thickness;
@@ -1679,6 +1749,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                         ring_fill_softness,
                         ring_fill_overlap_px,
                         line_max_height_ratio,
+                        bars_anchor,
+                        bars_direction,
                         ring_inner_ratio,
                         ring_length_ratio,
                         polygon_sides,
@@ -1716,6 +1788,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     ring_fill_softness,
                     ring_fill_overlap_px,
                     line_max_height_ratio,
+                    bars_anchor,
+                    bars_direction,
                     ring_inner_ratio,
                     ring_length_ratio,
                     polygon_sides,
@@ -1796,6 +1870,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 ring_fill_softness,
                 ring_fill_overlap_px,
                 line_max_height_ratio,
+                bars_anchor,
+                bars_direction,
                 ring_inner_ratio,
                 ring_length_ratio,
                 polygon_sides,
@@ -1833,6 +1909,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             ring_fill_softness,
             ring_fill_overlap_px,
             line_max_height_ratio,
+            bars_anchor,
+            bars_direction,
             ring_inner_ratio,
             ring_length_ratio,
             polygon_sides,
@@ -2191,6 +2269,8 @@ fn draw_visual_layer_with_effects(
     ring_fill_softness: f64,
     ring_fill_overlap_px: f64,
     line_max_height_ratio: f64,
+    bars_anchor: BarsAnchor,
+    bars_direction: BarsDirection,
     ring_inner_ratio: f64,
     ring_length_ratio: f64,
     polygon_sides: usize,
@@ -2233,6 +2313,8 @@ fn draw_visual_layer_with_effects(
                 ring_fill_softness,
                 ring_fill_overlap_px * widen,
                 line_max_height_ratio,
+                bars_anchor,
+                bars_direction,
                 ring_inner_ratio,
                 ring_length_ratio,
                 polygon_sides,
@@ -2269,6 +2351,8 @@ fn draw_visual_layer_with_effects(
         ring_fill_softness,
         ring_fill_overlap_px,
         line_max_height_ratio,
+        bars_anchor,
+        bars_direction,
         ring_inner_ratio,
         ring_length_ratio,
         polygon_sides,
@@ -2409,24 +2493,29 @@ fn draw_line_layout(
     dot_radius: f64,
     wave_roundness: f64,
     max_height_ratio: f64,
+    bars_anchor: BarsAnchor,
+    bars_direction: BarsDirection,
     alpha_scale: f64,
     base_light_enabled: bool,
     base_light_height: f64,
     base_light_alpha: f64,
     base_light_color: RgbaColor,
 ) {
+    let vertical_layout = matches!(bars_anchor, BarsAnchor::Bottom | BarsAnchor::Top);
     let count = values.len().max(1) as f64;
     let total_nominal = (count * bar_thickness) + ((count - 1.0).max(0.0) * gap);
-    let scale = if total_nominal > width {
-        width / total_nominal
+    let axis_span = if vertical_layout { width } else { height };
+    let cross_span = if vertical_layout { height } else { width };
+    let scale = if total_nominal > axis_span {
+        axis_span / total_nominal
     } else {
         1.0
     };
     let bar_width = (bar_thickness * scale).max(1.0);
     let gap_width = gap * scale;
     let rendered_total = (count * bar_width) + ((count - 1.0).max(0.0) * gap_width);
-    let start_x = (width - rendered_total).max(0.0) * 0.5;
-    let max_bar_height = (height * max_height_ratio).max(2.0);
+    let start_axis = (axis_span - rendered_total).max(0.0) * 0.5;
+    let max_bar_extent = (cross_span * max_height_ratio).max(2.0);
     let bar_style = BarStyle {
         corner_radius,
         segmented: segmented_bars,
@@ -2434,69 +2523,115 @@ fn draw_line_layout(
         segment_gap,
     };
     if base_light_enabled && base_light_alpha > 0.001 {
-        let light_h = base_light_height.clamp(2.0, height * 0.35);
-        let y0 = (height - light_h).max(0.0);
         let c = vivid_color(base_light_color);
-        let gradient = gtk::cairo::LinearGradient::new(0.0, height, 0.0, y0);
-        gradient.add_color_stop_rgba(
-            0.0,
-            c.r,
-            c.g,
-            c.b,
-            (c.a * alpha_scale * base_light_alpha).clamp(0.0, 1.0),
-        );
-        gradient.add_color_stop_rgba(
-            0.45,
-            c.r,
-            c.g,
-            c.b,
-            (c.a * alpha_scale * base_light_alpha * 0.42).clamp(0.0, 0.72),
-        );
-        gradient.add_color_stop_rgba(1.0, c.r, c.g, c.b, 0.0);
-        ctx.rectangle(0.0, y0, width, light_h);
-        let _ = ctx.set_source(&gradient);
-        let _ = ctx.fill();
+        if vertical_layout {
+            let light_h = base_light_height.clamp(2.0, height * 0.35);
+            let (y0, y1) = match bars_anchor {
+                BarsAnchor::Top => (0.0, light_h),
+                _ => ((height - light_h).max(0.0), height),
+            };
+            let gradient = gtk::cairo::LinearGradient::new(0.0, y1, 0.0, y0);
+            gradient.add_color_stop_rgba(0.0, c.r, c.g, c.b, (c.a * alpha_scale * base_light_alpha).clamp(0.0, 1.0));
+            gradient.add_color_stop_rgba(0.45, c.r, c.g, c.b, (c.a * alpha_scale * base_light_alpha * 0.42).clamp(0.0, 0.72));
+            gradient.add_color_stop_rgba(1.0, c.r, c.g, c.b, 0.0);
+            ctx.rectangle(0.0, y0, width, light_h);
+            let _ = ctx.set_source(&gradient);
+            let _ = ctx.fill();
+        } else {
+            let light_w = base_light_height.clamp(2.0, width * 0.35);
+            let (x0, x1) = match bars_anchor {
+                BarsAnchor::Left => (0.0, light_w),
+                _ => ((width - light_w).max(0.0), width),
+            };
+            let gradient = gtk::cairo::LinearGradient::new(x1, 0.0, x0, 0.0);
+            gradient.add_color_stop_rgba(0.0, c.r, c.g, c.b, (c.a * alpha_scale * base_light_alpha).clamp(0.0, 1.0));
+            gradient.add_color_stop_rgba(0.45, c.r, c.g, c.b, (c.a * alpha_scale * base_light_alpha * 0.42).clamp(0.0, 0.72));
+            gradient.add_color_stop_rgba(1.0, c.r, c.g, c.b, 0.0);
+            ctx.rectangle(x0, 0.0, light_w, height);
+            let _ = ctx.set_source(&gradient);
+            let _ = ctx.fill();
+        }
     }
     let mut wave_points: Vec<(f64, f64)> = Vec::with_capacity(values.len());
     for (index, value) in values.iter().enumerate() {
         let normalized = value.clamp(0.0, 1.0);
-        let bar_height = (max_bar_height * normalized).max(2.0);
-        let x = start_x + (index as f64 * (bar_width + gap_width));
-        let y = height - bar_height;
+        let bar_extent = (max_bar_extent * normalized).max(2.0);
+        let axis_pos = start_axis + (index as f64 * (bar_width + gap_width));
         let c = vivid_color(gradient_color(color, color2, index as f64 / count));
         let effective_alpha = (c.a * alpha_scale).clamp(0.0, 1.0);
         ctx.set_source_rgba(c.r, c.g, c.b, effective_alpha);
         match style {
             RenderStyle::Dots => {
                 let radius = dot_radius.max((bar_width * 0.32).max(2.0));
-                ctx.arc(x + (bar_width * 0.5), y + radius, radius, 0.0, PI * 2.0);
+                let (cx, cy) = if vertical_layout {
+                    let tip_y = match bars_direction {
+                        BarsDirection::Down => bar_extent - radius,
+                        _ => height - bar_extent + radius,
+                    };
+                    (axis_pos + (bar_width * 0.5), tip_y)
+                } else {
+                    let tip_x = match bars_direction {
+                        BarsDirection::Right => bar_extent - radius,
+                        _ => width - bar_extent + radius,
+                    };
+                    (tip_x, axis_pos + (bar_width * 0.5))
+                };
+                ctx.arc(cx, cy, radius, 0.0, PI * 2.0);
                 let _ = ctx.fill();
             }
             RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesOcean | RenderStyle::WavesOceanFill | RenderStyle::WavesFill => {
-                wave_points.push((x + (bar_width * 0.5), y));
+                if vertical_layout {
+                    let tip_y = match bars_direction {
+                        BarsDirection::Down => bar_extent,
+                        _ => height - bar_extent,
+                    };
+                    wave_points.push((axis_pos + (bar_width * 0.5), tip_y));
+                } else {
+                    let tip_x = match bars_direction {
+                        BarsDirection::Right => bar_extent,
+                        _ => width - bar_extent,
+                    };
+                    wave_points.push((tip_x, axis_pos + (bar_width * 0.5)));
+                }
             }
             _ => {
+                let (rect, orientation, forward) = if vertical_layout {
+                    let y = match bars_direction {
+                        BarsDirection::Down => 0.0,
+                        _ => height - bar_extent,
+                    };
+                    (
+                        BarRect { x: axis_pos, y, width: bar_width, height: bar_extent },
+                        BarOrientation::Horizontal,
+                        bars_direction == BarsDirection::Down,
+                    )
+                } else {
+                    let x = match bars_direction {
+                        BarsDirection::Right => 0.0,
+                        _ => width - bar_extent,
+                    };
+                    (
+                        BarRect { x, y: axis_pos, width: bar_extent, height: bar_width },
+                        BarOrientation::Vertical,
+                        bars_direction == BarsDirection::Right,
+                    )
+                };
                 append_bar_path(
                     ctx,
-                    BarRect {
-                        x,
-                        y,
-                        width: bar_width,
-                        height: bar_height,
-                    },
+                    rect,
                     BarStyle {
-                        corner_radius: bar_style.corner_radius.min(bar_width * 0.5).min(bar_height * 0.5),
+                        corner_radius: bar_style.corner_radius.min(rect.width * 0.5).min(rect.height * 0.5),
                         ..bar_style
                     },
-                    BarOrientation::Horizontal,
-                    false,
+                    orientation,
+                    forward,
                 );
                 let _ = ctx.fill();
             }
         }
     }
     if matches!(style, RenderStyle::Waves | RenderStyle::WavesKwy | RenderStyle::WavesOcean | RenderStyle::WavesOceanFill | RenderStyle::WavesFill) && !wave_points.is_empty() {
-        let ocean_points = if matches!(style, RenderStyle::WavesOcean | RenderStyle::WavesOceanFill) {
+        let ocean_points = if vertical_layout && matches!(style, RenderStyle::WavesOcean | RenderStyle::WavesOceanFill) {
             build_ocean_wave_points(&wave_points, height, max_height_ratio)
         } else {
             wave_points.clone()
@@ -2528,11 +2663,22 @@ fn draw_line_layout(
         } else if style == RenderStyle::WavesOceanFill {
             let fill_color = vivid_color(color2);
             append_smooth_path(ctx, &ocean_points, false, wave_roundness.max(0.90));
-            if let (Some((first_x, _)), Some((last_x, _))) = (ocean_points.first().copied(), ocean_points.last().copied()) {
-                ctx.line_to(last_x, height);
-                ctx.line_to(first_x, height);
+            if let (Some((first_x, first_y)), Some((last_x, last_y))) = (ocean_points.first().copied(), ocean_points.last().copied()) {
+                if vertical_layout {
+                    let baseline_y = if bars_direction == BarsDirection::Down { 0.0 } else { height };
+                    ctx.line_to(last_x, baseline_y);
+                    ctx.line_to(first_x, baseline_y);
+                } else {
+                    let baseline_x = if bars_direction == BarsDirection::Right { 0.0 } else { width };
+                    ctx.line_to(baseline_x, last_y);
+                    ctx.line_to(baseline_x, first_y);
+                }
                 ctx.close_path();
-                let gradient = gtk::cairo::LinearGradient::new(0.0, height, 0.0, height * 0.12);
+                let gradient = if vertical_layout {
+                    gtk::cairo::LinearGradient::new(0.0, height, 0.0, height * 0.12)
+                } else {
+                    gtk::cairo::LinearGradient::new(width, 0.0, width * 0.12, 0.0)
+                };
                 gradient.add_color_stop_rgba(
                     0.00,
                     fill_color.r,
@@ -2574,11 +2720,22 @@ fn draw_line_layout(
         } else if style == RenderStyle::WavesFill {
             let fill_color = vivid_color(color2);
             append_smooth_path(ctx, &ocean_points, false, wave_roundness.max(0.78));
-            if let (Some((first_x, _)), Some((last_x, _))) = (ocean_points.first().copied(), ocean_points.last().copied()) {
-                ctx.line_to(last_x, height);
-                ctx.line_to(first_x, height);
+            if let (Some((first_x, first_y)), Some((last_x, last_y))) = (ocean_points.first().copied(), ocean_points.last().copied()) {
+                if vertical_layout {
+                    let baseline_y = if bars_direction == BarsDirection::Down { 0.0 } else { height };
+                    ctx.line_to(last_x, baseline_y);
+                    ctx.line_to(first_x, baseline_y);
+                } else {
+                    let baseline_x = if bars_direction == BarsDirection::Right { 0.0 } else { width };
+                    ctx.line_to(baseline_x, last_y);
+                    ctx.line_to(baseline_x, first_y);
+                }
                 ctx.close_path();
-                let gradient = gtk::cairo::LinearGradient::new(0.0, height, 0.0, height * 0.18);
+                let gradient = if vertical_layout {
+                    gtk::cairo::LinearGradient::new(0.0, height, 0.0, height * 0.18)
+                } else {
+                    gtk::cairo::LinearGradient::new(width, 0.0, width * 0.18, 0.0)
+                };
                 gradient.add_color_stop_rgba(
                     0.00,
                     fill_color.r,
@@ -2891,6 +3048,8 @@ fn draw_visual_layer(
     ring_fill_softness: f64,
     ring_fill_overlap_px: f64,
     line_max_height_ratio: f64,
+    bars_anchor: BarsAnchor,
+    bars_direction: BarsDirection,
     ring_inner_ratio: f64,
     ring_length_ratio: f64,
     polygon_sides: usize,
@@ -2936,14 +3095,16 @@ fn draw_visual_layer(
                 segment_gap,
                 bars_wave_thickness,
                 bars_dot_radius,
-                    bars_wave_roundness,
-                    line_max_height_ratio,
-                    alpha_scale,
-                    base_light_enabled,
-                    base_light_height,
-                    base_light_alpha,
-                    base_light_color,
-                ),
+                bars_wave_roundness,
+                line_max_height_ratio,
+                bars_anchor,
+                bars_direction,
+                alpha_scale,
+                base_light_enabled,
+                base_light_height,
+                base_light_alpha,
+                base_light_color,
+            ),
         },
         VisualMode::Ring => match style {
             RenderStyle::Triangle | RenderStyle::Polygon => {
