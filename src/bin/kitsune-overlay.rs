@@ -148,6 +148,8 @@ struct Config {
     color_mode: ColorMode,
     color2_mode: ColorMode,
     color_palette_file: PathBuf,
+    dynamic_contrast_guard: bool,
+    dynamic_contrast_threshold: f64,
     bar_width: f64,
     bar_gap: f64,
     bar_corner_radius: f64,
@@ -331,6 +333,43 @@ impl Palette {
             ColorMode::AccentDark => self.accent_dark,
         }
     }
+
+    fn resolve_with_contrast_guard(
+        &self,
+        mode: ColorMode,
+        fallback: RgbaColor,
+        enabled: bool,
+        threshold: f64,
+    ) -> RgbaColor {
+        if mode == ColorMode::Static {
+            return fallback;
+        }
+        let candidate = self.resolve(mode, fallback);
+        if !enabled || color_luma(candidate) <= threshold {
+            return candidate;
+        }
+
+        match mode {
+            ColorMode::AccentLight => {
+                if color_luma(self.accent_mid) <= threshold {
+                    self.accent_mid
+                } else if color_luma(self.accent_dark) <= threshold {
+                    self.accent_dark
+                } else {
+                    darken_color(self.accent_dark, 0.34)
+                }
+            }
+            ColorMode::AccentMid => {
+                if color_luma(self.accent_dark) <= threshold {
+                    self.accent_dark
+                } else {
+                    darken_color(self.accent_dark, 0.28)
+                }
+            }
+            ColorMode::AccentDark => darken_color(candidate, 0.24),
+            ColorMode::Static => fallback,
+        }
+    }
 }
 
 fn install_css() {
@@ -396,6 +435,20 @@ fn default_config_path() -> PathBuf {
         return PathBuf::from(path);
     }
     PathBuf::from("./config/base.conf")
+}
+
+fn color_luma(color: RgbaColor) -> f64 {
+    0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b
+}
+
+fn darken_color(color: RgbaColor, amount: f64) -> RgbaColor {
+    let factor = (1.0 - amount).clamp(0.0, 1.0);
+    RgbaColor {
+        r: (color.r * factor).clamp(0.0, 1.0),
+        g: (color.g * factor).clamp(0.0, 1.0),
+        b: (color.b * factor).clamp(0.0, 1.0),
+        a: color.a,
+    }
 }
 
 fn args_config_path() -> PathBuf {
@@ -492,6 +545,15 @@ fn parse_config(path: &Path) -> Config {
         .unwrap_or(if dynamic_color { ColorMode::AccentLight } else { ColorMode::Static });
     let color_palette_file =
         PathBuf::from(cfg_get_string(&map, "color_palette_file", "/tmp/kitsune-accent.palette"));
+    let dynamic_contrast_guard = map
+        .get("dynamic_contrast_guard")
+        .map(|v| parse_boolish(v))
+        .unwrap_or(false);
+    let dynamic_contrast_threshold = map
+        .get("dynamic_contrast_threshold")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.68)
+        .clamp(0.35, 0.95);
     let bar_width = map
         .get("bar_width")
         .and_then(|v| v.parse::<f64>().ok())
@@ -738,6 +800,8 @@ fn parse_config(path: &Path) -> Config {
         color_mode,
         color2_mode,
         color_palette_file,
+        dynamic_contrast_guard,
+        dynamic_contrast_threshold,
         bar_width,
         bar_gap,
         bar_corner_radius,
@@ -1538,6 +1602,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let base_light_alpha = cfg.base_light_alpha;
     let base_light_color = cfg.base_light_color;
     let base_light_color_mode = cfg.base_light_color_mode;
+    let dynamic_contrast_guard = cfg.dynamic_contrast_guard;
+    let dynamic_contrast_threshold = cfg.dynamic_contrast_threshold;
     let cfg_for_particles = cfg.clone();
 
     drawing_area.set_draw_func(move |_, ctx, width, height| {
@@ -1553,7 +1619,12 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             .map(|v| v.clone())
             .unwrap_or_else(|_| vec![0.0; values.len()]);
         let current_palette = palette.lock().map(|v| *v).unwrap_or(default_palette);
-        let resolved_base_light_color = current_palette.resolve(base_light_color_mode, base_light_color);
+        let resolved_base_light_color = current_palette.resolve_with_contrast_guard(
+            base_light_color_mode,
+            base_light_color,
+            dynamic_contrast_guard,
+            dynamic_contrast_threshold,
+        );
         if spectrum_mode == SpectrumMode::Group {
             let layers = group_layers.lock().map(|v| v.clone()).unwrap_or_default();
             let vis = group_visibility_for_draw
@@ -1564,7 +1635,12 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 if !layer.enabled {
                     continue;
                 }
-                let base_color = current_palette.resolve(layer.color_mode, layer.static_color);
+                let base_color = current_palette.resolve_with_contrast_guard(
+                    layer.color_mode,
+                    layer.static_color,
+                    dynamic_contrast_guard,
+                    dynamic_contrast_threshold,
+                );
                 let zoned_values = apply_spectrum_zone(&values, layer.zone);
                 let layer_values = apply_layer_profile(&zoned_values, layer.mode, &layer.profile);
                 let visibility_alpha = vis
@@ -1654,8 +1730,18 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 );
             }
             if particles_enabled {
-                let particle_color = current_palette.resolve(particles_color_mode, particles_color);
-                let particle_color2 = current_palette.resolve(ColorMode::AccentLight, color2);
+                let particle_color = current_palette.resolve_with_contrast_guard(
+                    particles_color_mode,
+                    particles_color,
+                    dynamic_contrast_guard,
+                    dynamic_contrast_threshold,
+                );
+                let particle_color2 = current_palette.resolve_with_contrast_guard(
+                    ColorMode::AccentLight,
+                    color2,
+                    dynamic_contrast_guard,
+                    dynamic_contrast_threshold,
+                );
                 if let Ok(live_particles) = particles_for_draw.lock() {
                     draw_particles(
                         ctx,
@@ -1669,8 +1755,18 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             return;
         }
 
-        let single_color = current_palette.resolve(single_color_mode, color);
-        let single_color2 = current_palette.resolve(single_color2_mode, color2);
+        let single_color = current_palette.resolve_with_contrast_guard(
+            single_color_mode,
+            color,
+            dynamic_contrast_guard,
+            dynamic_contrast_threshold,
+        );
+        let single_color2 = current_palette.resolve_with_contrast_guard(
+            single_color2_mode,
+            color2,
+            dynamic_contrast_guard,
+            dynamic_contrast_threshold,
+        );
         let style = match single_mode {
             VisualMode::Ring => single_ring_style,
             VisualMode::Bars => single_bars_style,
@@ -1750,7 +1846,12 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             resolved_base_light_color,
         );
         if particles_enabled {
-            let particle_color = current_palette.resolve(particles_color_mode, particles_color);
+            let particle_color = current_palette.resolve_with_contrast_guard(
+                particles_color_mode,
+                particles_color,
+                dynamic_contrast_guard,
+                dynamic_contrast_threshold,
+            );
             if let Ok(live_particles) = particles_for_draw.lock() {
                 draw_particles(
                     ctx,
