@@ -1550,7 +1550,7 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 .lock()
                 .map(|v| v.clone())
                 .unwrap_or_default();
-            for (layer_index, layer) in layers.iter().enumerate() {
+            for (layer_index, layer) in layers.iter().enumerate().rev() {
                 if !layer.enabled {
                     continue;
                 }
