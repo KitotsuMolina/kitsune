@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 
 ENABLE="${1:-}"
 MAX="${2:-}"
@@ -62,10 +63,10 @@ done
 set_key() {
   local key="$1"
   local val="$2"
-  if grep -qE "^${key}=" ./config/base.conf; then
-    sed -i "s|^${key}=.*|${key}=${val}|" ./config/base.conf
+  if grep -qE "^${key}=" $CFG; then
+    sed -i "s|^${key}=.*|${key}=${val}|" $CFG
   else
-    printf '%s=%s\n' "$key" "$val" >> ./config/base.conf
+    printf '%s=%s\n' "$key" "$val" >> $CFG
   fi
 }
 

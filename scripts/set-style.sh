@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 TARGET="${1:-}"
 STYLE="${2:-}"
 
@@ -16,10 +17,10 @@ if [[ "$STYLE" != "bars" && "$STYLE" != "bars_fill" && "$STYLE" != "waves" && "$
 fi
 
 KEY="${TARGET}_style"
-sed -i "s/^${KEY}=.*/${KEY}=${STYLE}/" ./config/base.conf
+sed -i "s/^${KEY}=.*/${KEY}=${STYLE}/" $CFG
 
 echo "[OK] ${KEY}=${STYLE}"
-CURRENT_MODE="$(awk -F'=' '$1 ~ /^mode$/ {print $2}' ./config/base.conf | tr -d '[:space:]')"
+CURRENT_MODE="$(awk -F'=' '$1 ~ /^mode$/ {print $2}' $CFG | tr -d '[:space:]')"
 if [[ "$CURRENT_MODE" != "$TARGET" ]]; then
   echo "[i] Nota: mode actual es '${CURRENT_MODE}'. Para verlo debes poner mode=${TARGET}."
   echo "    Usa: ./scripts/set-visual.sh ${TARGET} ${STYLE}"

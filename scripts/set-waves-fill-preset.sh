@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 PRESET="${1:-}"
 
 if [[ "$PRESET" != "clean" && "$PRESET" != "impact" ]]; then
@@ -12,7 +13,7 @@ fi
 set_key() {
   local key="$1"
   local val="$2"
-  sed -i "s/^${key}=.*/${key}=${val}/" ./config/base.conf
+  sed -i "s/^${key}=.*/${key}=${val}/" $CFG
 }
 
 if [[ "$PRESET" == "clean" ]]; then

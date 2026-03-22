@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 VAL="${1:-}"
 
 if [[ -z "$VAL" ]]; then
@@ -21,8 +22,8 @@ if [[ -z "$CLAMPED" ]]; then
   exit 1
 fi
 
-sed -i "s/^bars_wave_roundness=.*/bars_wave_roundness=${CLAMPED}/" ./config/base.conf
-sed -i "s/^ring_wave_roundness=.*/ring_wave_roundness=${CLAMPED}/" ./config/base.conf
+sed -i "s/^bars_wave_roundness=.*/bars_wave_roundness=${CLAMPED}/" $CFG
+sed -i "s/^ring_wave_roundness=.*/ring_wave_roundness=${CLAMPED}/" $CFG
 
 echo "[OK] bars_wave_roundness=${CLAMPED}"
 echo "[OK] ring_wave_roundness=${CLAMPED}"

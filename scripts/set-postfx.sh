@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 
 ENABLE="${1:-}"
 BLUR_PASSES="${2:-}"
@@ -49,13 +50,13 @@ if [[ -n "$SCOPE" && "$SCOPE" != "final" && "$SCOPE" != "layer" && "$SCOPE" != "
   exit 1
 fi
 
-sed -i "s/^postfx_enabled=.*/postfx_enabled=${ENABLE}/" ./config/base.conf
-sed -i "s/^postfx_blur_passes=.*/postfx_blur_passes=${BLUR_PASSES}/" ./config/base.conf
-sed -i "s/^postfx_blur_mix=.*/postfx_blur_mix=${BLUR_MIX}/" ./config/base.conf
-sed -i "s/^postfx_glow_strength=.*/postfx_glow_strength=${GLOW_STRENGTH}/" ./config/base.conf
-sed -i "s/^postfx_glow_mix=.*/postfx_glow_mix=${GLOW_MIX}/" ./config/base.conf
+sed -i "s/^postfx_enabled=.*/postfx_enabled=${ENABLE}/" $CFG
+sed -i "s/^postfx_blur_passes=.*/postfx_blur_passes=${BLUR_PASSES}/" $CFG
+sed -i "s/^postfx_blur_mix=.*/postfx_blur_mix=${BLUR_MIX}/" $CFG
+sed -i "s/^postfx_glow_strength=.*/postfx_glow_strength=${GLOW_STRENGTH}/" $CFG
+sed -i "s/^postfx_glow_mix=.*/postfx_glow_mix=${GLOW_MIX}/" $CFG
 if [[ -n "$SCOPE" ]]; then
-  sed -i "s/^postfx_scope=.*/postfx_scope=${SCOPE}/" ./config/base.conf
+  sed -i "s/^postfx_scope=.*/postfx_scope=${SCOPE}/" $CFG
 fi
 
 if [[ -n "$SCOPE" ]]; then

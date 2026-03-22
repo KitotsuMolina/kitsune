@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 FILE="${1:-}"
 GROUPS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/kitsune/groups"
 if [[ -z "$FILE" ]]; then
@@ -20,6 +21,6 @@ fi
 if [[ -f "$GROUPS_DIR/$NORMALIZED" ]]; then
   FILE="$NORMALIZED"
 fi
-sed -i "s|^group_file=.*|group_file=${FILE}|" ./config/base.conf
+sed -i "s|^group_file=.*|group_file=${FILE}|" $CFG
 echo "[OK] group_file=${FILE}"
 echo "Reinicia para aplicar: ./scripts/stop.sh && ./scripts/start.sh"

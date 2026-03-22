@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 MODE="${1:-}"
 STYLE="${2:-}"
 
@@ -15,8 +16,8 @@ if [[ "$STYLE" != "bars" && "$STYLE" != "bars_fill" && "$STYLE" != "waves" && "$
   exit 1
 fi
 
-sed -i "s/^mode=.*/mode=${MODE}/" ./config/base.conf
-sed -i "s/^${MODE}_style=.*/${MODE}_style=${STYLE}/" ./config/base.conf
+sed -i "s/^mode=.*/mode=${MODE}/" $CFG
+sed -i "s/^${MODE}_style=.*/${MODE}_style=${STYLE}/" $CFG
 
 echo "[OK] mode=${MODE} ${MODE}_style=${STYLE}"
 echo "Reinicia para aplicar: ./scripts/stop.sh && ./scripts/start.sh"

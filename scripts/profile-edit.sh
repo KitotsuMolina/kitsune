@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 PARAM="${1:-}"
 VALUE_RAW="${2:-}"
 FILE_ARG="${3:-}"
@@ -14,7 +15,7 @@ fi
 if [[ -n "$FILE_ARG" ]]; then
   FILE="$FILE_ARG"
 else
-  FILE="$(awk -F'=' '$1 ~ /^test_profile_file$/ {print $2}' ./config/base.conf | tr -d '[:space:]')"
+  FILE="$(awk -F'=' '$1 ~ /^test_profile_file$/ {print $2}' $CFG | tr -d '[:space:]')"
   [[ -n "$FILE" ]] || FILE="./config/profiles/test.profile"
 fi
 

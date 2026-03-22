@@ -2,8 +2,9 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 
-CFG="${1:-./config/base.conf}"
+CFG="${1:-$CFG}"
 PID_MPV="${2:-./.run/mpvpaper.pid}"
 PID_COLOR="${3:-./.run/colorwatch.pid}"
 PID_MON="${4:-./.run/monitorwatch.pid}"

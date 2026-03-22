@@ -2,13 +2,14 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 SRC_NAME="${1:-}"
 if [[ -z "$SRC_NAME" ]]; then
   echo "Uso: ./scripts/test-profile-load.sh <nombre_perfil_sin_extension>"
   exit 1
 fi
 
-TEST_FILE="$(awk -F'=' '$1 ~ /^test_profile_file$/ {print $2}' ./config/base.conf | tr -d '[:space:]')"
+TEST_FILE="$(awk -F'=' '$1 ~ /^test_profile_file$/ {print $2}' $CFG | tr -d '[:space:]')"
 if [[ -z "$TEST_FILE" ]]; then
   TEST_FILE="./config/profiles/test.profile"
 fi

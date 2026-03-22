@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 VAL="${1:-}"
 
 if [[ -z "$VAL" ]]; then
@@ -21,6 +22,6 @@ if [[ -z "$CLAMPED" ]]; then
   exit 1
 fi
 
-sed -i "s/^ring_fill_softness=.*/ring_fill_softness=${CLAMPED}/" ./config/base.conf
+sed -i "s/^ring_fill_softness=.*/ring_fill_softness=${CLAMPED}/" $CFG
 echo "[OK] ring_fill_softness=${CLAMPED}"
 echo "Reinicia para aplicar: ./scripts/stop.sh && ./scripts/start.sh"

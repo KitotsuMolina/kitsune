@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 
 PRESET="${1:-}"
 MODE="${2:-}"
@@ -28,7 +29,7 @@ USAGE
 fi
 
 if [[ -z "$MODE" ]]; then
-  MODE="$(awk -F'=' '$1 ~ /^mode$/ {print $2}' ./config/base.conf | tr -d '[:space:]')"
+  MODE="$(awk -F'=' '$1 ~ /^mode$/ {print $2}' $CFG | tr -d '[:space:]')"
   [[ -n "$MODE" ]] || MODE="ring"
 fi
 

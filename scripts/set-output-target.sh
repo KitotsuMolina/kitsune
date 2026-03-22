@@ -2,7 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-CFG="./config/base.conf"
+CFG="${KITSUNE_CFG:-./config/base.conf}"
 TARGET="${1:-}"
 
 if [[ "$TARGET" != "layer-shell" ]]; then

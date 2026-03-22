@@ -2,8 +2,10 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+CFG="${KITSUNE_CFG:-./config/base.conf}"
+CAVA_CFG="${KITSUNE_CAVA_CFG:-./config/cava.conf}"
 
-CFG="./config/base.conf"
+CFG="$CFG"
 AUTO_INSTALL=0
 INSTALL_COMPLETIONS=0
 
@@ -274,8 +276,8 @@ else
 fi
 
 FIFO_CAVA="$(cfg_get fifo_cava /tmp/cava-rs.raw)"
-if [[ -f ./config/cava.conf ]]; then
-  sed -i "s|^raw_target = .*|raw_target = ${FIFO_CAVA}|" ./config/cava.conf
+if [[ -f $CAVA_CFG ]]; then
+  sed -i "s|^raw_target = .*|raw_target = ${FIFO_CAVA}|" $CAVA_CFG
 fi
 
 DYNAMIC_COLOR="$(cfg_get dynamic_color 0)"

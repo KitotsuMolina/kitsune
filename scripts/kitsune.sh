@@ -3,8 +3,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-CFG="./config/base.conf"
-CAVA_CFG="./config/cava.conf"
+CFG="${KITSUNE_CFG:-./config/base.conf}"
+CAVA_CFG="${KITSUNE_CAVA_CFG:-./config/cava.conf}"
 RUN_DIR="./.run"
 PID_MPV="$RUN_DIR/mpvpaper.pid"
 PID_LAYER="$RUN_DIR/layer.pid"
@@ -13,8 +13,8 @@ PID_REN="$RUN_DIR/renderer.pid"
 PID_COLOR="$RUN_DIR/colorwatch.pid"
 PID_MON="$RUN_DIR/monitorwatch.pid"
 SEED_FILE="$RUN_DIR/rotate.seed"
-DEFAULT_CFG="./config/base.conf.default"
-DEFAULT_CAVA_CFG="./config/cava.conf.default"
+DEFAULT_CFG="${KITSUNE_DEFAULT_CFG:-./config/base.conf.default}"
+DEFAULT_CAVA_CFG="${KITSUNE_DEFAULT_CAVA_CFG:-./config/cava.conf.default}"
 GROUPS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/kitsune/groups"
 
 LOG_RENDERER="/tmp/kitsune-renderer.log"
@@ -2470,7 +2470,7 @@ case "$cmd" in
       fi
       ./target/release/kitsune run --config "$2"
     else
-      ./target/release/kitsune run --config ./config/base.conf
+      ./target/release/kitsune run --config $CFG
     fi
     ;;
   config)
