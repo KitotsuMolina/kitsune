@@ -1,7 +1,7 @@
 # Core
 backend=gpu
 spectrum_mode=single
-group_file=./config/groups/default.group
+group_file=default.group
 group_poll_ms=400
 mode=bars
 runtime_mode=test

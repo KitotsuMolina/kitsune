@@ -15,7 +15,8 @@ _kitsune_monitors() {
 }
 
 _kitsune_group_files() {
-  print -l config/groups/*.group(N:t)
+  local dir="${XDG_CONFIG_HOME:-$HOME/.config}/kitsune/groups"
+  print -l ${dir}/*.group(N:t)
 }
 
 local -a commands

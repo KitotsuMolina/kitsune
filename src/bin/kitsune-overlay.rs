@@ -582,7 +582,7 @@ fn parse_config(path: &Path) -> Config {
         .unwrap_or(3)
         .max(3);
     let position = cfg_get_string(&map, "overlay_position", "bottom");
-    let group_file = PathBuf::from(cfg_get_string(&map, "group_file", "./config/groups/default.group"));
+    let group_file = PathBuf::from(cfg_get_string(&map, "group_file", "default.group"));
     let group_poll_ms = map
         .get("group_poll_ms")
         .and_then(|v| v.parse::<u64>().ok())
@@ -821,6 +821,16 @@ fn resolve_group_path(base_config: &Path, raw: &str) -> PathBuf {
         }
 
         if let Some(file_name) = path.file_name() {
+            let xdg_home = env::var("XDG_CONFIG_HOME")
+                .ok()
+                .map(PathBuf::from)
+                .or_else(|| env::var("HOME").ok().map(|home| Path::new(&home).join(".config")));
+            if let Some(config_home) = xdg_home {
+                let fallback = config_home.join("kitsune/groups").join(file_name);
+                if fallback.exists() {
+                    return fallback;
+                }
+            }
             let fallback = Path::new("./config/groups").join(file_name);
             if fallback.exists() {
                 return fallback;

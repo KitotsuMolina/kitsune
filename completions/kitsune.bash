@@ -13,7 +13,8 @@ _kitsune_monitors() {
 }
 
 _kitsune_group_files() {
-  ls ./config/groups/*.group 2>/dev/null | xargs -n1 basename
+  local dir="${XDG_CONFIG_HOME:-$HOME/.config}/kitsune/groups"
+  ls "$dir"/*.group 2>/dev/null | xargs -n1 basename
 }
 
 _kitsune_completion() {

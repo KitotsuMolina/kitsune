@@ -1,0 +1,10 @@
+# Bars + Ring FX test
+# Intended to be used with global FX enabled in base.conf:
+# - particles_enabled=1
+# - base_light_enabled=1
+#
+# The group itself only defines the spectrum layers.
+# Particles and base light are currently global renderer effects.
+
+layer=1,bars,bars,bars_soft,#f4f7fb,0.36,standard,0,color_mode=accent_light
+layer=1,ring,bars,ring_energy,#19f0ff,0.60,standard,0,color_mode=accent_mid

@@ -1022,7 +1022,7 @@ fn load_app_config(path: &Path) -> io::Result<AppConfig> {
     Ok(AppConfig {
         backend: RenderBackend::from_str(&get_string(&map, "backend", "cpu")),
         spectrum_mode: SpectrumMode::from_str(&get_string(&map, "spectrum_mode", "single")),
-        group_file: PathBuf::from(get_string(&map, "group_file", "./config/groups/default.group")),
+        group_file: PathBuf::from(get_string(&map, "group_file", "default.group")),
         group_poll_ms: get_num(&map, "group_poll_ms", 400u64).max(50),
         mode,
         runtime_mode,

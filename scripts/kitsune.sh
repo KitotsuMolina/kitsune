@@ -15,6 +15,7 @@ PID_MON="$RUN_DIR/monitorwatch.pid"
 SEED_FILE="$RUN_DIR/rotate.seed"
 DEFAULT_CFG="./config/base.conf.default"
 DEFAULT_CAVA_CFG="./config/cava.conf.default"
+GROUPS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/kitsune/groups"
 
 LOG_RENDERER="/tmp/kitsune-renderer.log"
 LOG_CAVA="/tmp/kitsune-cava.log"
@@ -240,6 +241,10 @@ cfg_set_in_file() {
   ' "$file" > "$tmp"
 
   mv "$tmp" "$file"
+}
+
+ensure_groups_dir() {
+  mkdir -p "$GROUPS_DIR"
 }
 
 cfg_get_in_file() {
@@ -566,7 +571,7 @@ cmd_start() {
   cfg_set_in_file "$cfg_inst" color_palette_file "/tmp/kitsune-accent-${id}.palette"
   cfg_set_in_file "$cfg_inst" monitor_fallback_enabled "0"
   local configured_group_file resolved_group_file
-  configured_group_file="$(cfg_get group_file ./config/groups/default.group)"
+  configured_group_file="$(cfg_get group_file default.group)"
   resolved_group_file="$(resolve_group_file "$configured_group_file" || true)"
   if [[ -n "$resolved_group_file" ]]; then
     if [[ "$resolved_group_file" != /* ]]; then
@@ -891,7 +896,7 @@ print_status() {
   rot="$(cfg_get rotate_profiles 0)"
   rot_sec="$(cfg_get rotation_seconds 10)"
   dyn="$(cfg_get dynamic_color 0)"
-  group_file="$(cfg_get group_file ./config/groups/default.group)"
+  group_file="$(cfg_get group_file default.group)"
   output_target="$(cfg_get output_target layer-shell)"
   local real_mon reason
   real_mon="$(cat "$RUN_DIR/target_monitor" 2>/dev/null || true)"
@@ -1706,18 +1711,36 @@ cmd_profiles() {
 resolve_group_file() {
   local file="${1:-}"
   if [[ -z "$file" ]]; then
-    file="$(cfg_get group_file ./config/groups/default.group)"
+    file="$(cfg_get group_file default.group)"
   fi
-  if [[ ! -f "$file" && -f "./$file" ]]; then
-    file="./$file"
+  ensure_groups_dir
+  if [[ -f "$file" ]]; then
+    printf '%s\n' "$file"
+    return 0
   fi
-  if [[ ! -f "$file" && -f "./config/groups/$file" ]]; then
-    file="./config/groups/$file"
+  local clean="${file#./}"
+  if [[ "$clean" == config/groups/* ]]; then
+    clean="${clean#config/groups/}"
   fi
-  if [[ ! -f "$file" ]]; then
-    return 1
+  local candidate
+  candidate="$GROUPS_DIR/$clean"
+  if [[ -f "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
   fi
-  printf '%s\n' "$file"
+  if [[ -f "./$clean" ]]; then
+    printf '%s\n' "./$clean"
+    return 0
+  fi
+  if [[ -f "./config/groups/$clean" ]]; then
+    printf '%s\n' "./config/groups/$clean"
+    return 0
+  fi
+  if [[ -f "$HOME/.local/share/kitsune/config/groups/$clean" ]]; then
+    printf '%s\n' "$HOME/.local/share/kitsune/config/groups/$clean"
+    return 0
+  fi
+  return 1
 }
 
 normalize_layer_line() {
@@ -1732,7 +1755,7 @@ normalize_layer_line() {
 cmd_group_validate() {
   local file
   file="$(resolve_group_file "${1:-}")" || {
-    echo "[x] No existe: $file (ni en ./config/groups)"
+    echo "[x] No existe group file en $GROUPS_DIR"
     exit 1
   }
 
@@ -1830,7 +1853,8 @@ cmd_group_validate() {
 }
 
 cmd_group_files() {
-  local dir="./config/groups"
+  ensure_groups_dir
+  local dir="$GROUPS_DIR"
   if [[ ! -d "$dir" ]]; then
     echo "[x] No existe directorio de grupos: $dir"
     exit 1
@@ -1858,8 +1882,8 @@ cmd_group_create() {
   if [[ "$file" != *.group ]]; then
     file="${file}.group"
   fi
-  local path="./config/groups/${file}"
-  mkdir -p "./config/groups"
+  ensure_groups_dir
+  local path="${GROUPS_DIR}/${file}"
   if [[ -f "$path" ]]; then
     echo "[x] Group ya existe: $file"
     exit 1
