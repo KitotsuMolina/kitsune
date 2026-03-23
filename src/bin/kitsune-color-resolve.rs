@@ -12,8 +12,12 @@ struct LayerColorRequest {
     target_luma: Option<f64>,
     particles_color_mode: ColorMode,
     particles_static_color: RgbaColor,
+    particles_palette_channel: Option<PaletteChannel>,
+    particles_target_luma: Option<f64>,
     base_light_color_mode: ColorMode,
     base_light_static_color: RgbaColor,
+    base_light_palette_channel: Option<PaletteChannel>,
+    base_light_target_luma: Option<f64>,
 }
 
 fn parse_cfg(path: &Path) -> HashMap<String, String> {
@@ -45,6 +49,10 @@ fn parse_layer_parts(parts: &[&str]) -> Result<LayerColorRequest, String> {
     let mut target_luma = None;
     let mut particles_static_color = RgbaColor::from_hex_with_alpha(parts[4], alpha);
     let mut base_light_static_color = RgbaColor::from_hex_with_alpha(parts[4], alpha);
+    let mut particles_palette_channel = None;
+    let mut particles_target_luma = None;
+    let mut base_light_palette_channel = None;
+    let mut base_light_target_luma = None;
     if matches!(
         parts[4].to_ascii_lowercase().as_str(),
         "accent_light" | "accent_mid" | "accent_dark" | "static" | "dynamic" | "wallpaper"
@@ -68,10 +76,18 @@ fn parse_layer_parts(parts: &[&str]) -> Result<LayerColorRequest, String> {
                 particles_color_mode = ColorMode::from_str(value);
             } else if key.eq_ignore_ascii_case("particles_color") {
                 particles_static_color = RgbaColor::from_hex_with_alpha(value, alpha);
+            } else if key.eq_ignore_ascii_case("particles_palette_channel") {
+                particles_palette_channel = Some(PaletteChannel::from_str(value));
+            } else if key.eq_ignore_ascii_case("particles_target_luma") {
+                particles_target_luma = value.parse::<f64>().ok().map(|v| v.clamp(0.0, 1.0));
             } else if key.eq_ignore_ascii_case("base_light_color_mode") {
                 base_light_color_mode = ColorMode::from_str(value);
             } else if key.eq_ignore_ascii_case("base_light_color") {
                 base_light_static_color = RgbaColor::from_hex_with_alpha(value, alpha);
+            } else if key.eq_ignore_ascii_case("base_light_palette_channel") {
+                base_light_palette_channel = Some(PaletteChannel::from_str(value));
+            } else if key.eq_ignore_ascii_case("base_light_target_luma") {
+                base_light_target_luma = value.parse::<f64>().ok().map(|v| v.clamp(0.0, 1.0));
             }
         }
     }
@@ -87,8 +103,12 @@ fn parse_layer_parts(parts: &[&str]) -> Result<LayerColorRequest, String> {
         target_luma,
         particles_color_mode,
         particles_static_color,
+        particles_palette_channel,
+        particles_target_luma,
         base_light_color_mode,
         base_light_static_color,
+        base_light_palette_channel,
+        base_light_target_luma,
     })
 }
 
@@ -191,8 +211,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         palette.resolve_custom_dynamic(
             layer.particles_color_mode,
             layer.particles_static_color,
-            layer.palette_channel,
-            layer.target_luma,
+            layer.particles_palette_channel.unwrap_or(layer.palette_channel),
+            layer.particles_target_luma.or(layer.target_luma),
             contrast_guard,
             contrast_threshold,
         )
@@ -203,8 +223,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         palette.resolve_custom_dynamic(
             layer.base_light_color_mode,
             layer.base_light_static_color,
-            layer.palette_channel,
-            layer.target_luma.map(|v| (v + 0.12).clamp(0.0, 1.0)),
+            layer.base_light_palette_channel.unwrap_or(layer.palette_channel),
+            layer
+                .base_light_target_luma
+                .or_else(|| layer.target_luma.map(|v| (v + 0.12).clamp(0.0, 1.0))),
             contrast_guard,
             contrast_threshold,
         )
