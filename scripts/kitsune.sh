@@ -91,6 +91,7 @@ Color:
   color-poll <segundos>
   colorwatch [monitor] [out_file] [interval] [--once]
   color resolve-layer <index> [file.group] [--json]
+  audio sources [--json]
 
 PostFX:
   postfx <enable:0|1> <blur_passes:0..4> <blur_mix:0..1> <glow_strength:0..3> <glow_mix:0..1> [scope:final|layer|mixed]
@@ -2631,6 +2632,19 @@ case "$cmd" in
           ;;
       *)
         echo "Uso: kitsune color <resolve-layer>"
+        exit 1
+        ;;
+    esac
+    ;;
+  audio)
+    sub="${1:-}"
+    shift || true
+    case "$sub" in
+      sources)
+        ./scripts/audio-sources.sh "$@"
+        ;;
+      *)
+        echo "Uso: kitsune audio <sources>"
         exit 1
         ;;
     esac

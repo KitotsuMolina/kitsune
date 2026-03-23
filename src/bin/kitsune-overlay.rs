@@ -288,6 +288,7 @@ struct GroupLayer {
     mode: VisualMode,
     style: RenderStyle,
     profile: LayerProfile,
+    audio_source: Option<String>,
     zone: SpectrumZone,
     static_color: RgbaColor,
     color_mode: ColorMode,
@@ -1200,6 +1201,7 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
         let mode = VisualMode::from_str(parts[1]);
         let style = RenderStyle::from_str(parts[2]);
         let profile = load_layer_profile(config_path, mode, parts[3]);
+        let mut audio_source = None;
         let alpha = parts[5].parse::<f64>().unwrap_or(1.0).clamp(0.0, 1.0);
         let mut color_mode = ColorMode::Static;
         let mut auto_hide = mode == VisualMode::Ring;
@@ -1262,6 +1264,10 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
         }
         for extra in parts.iter().skip(6) {
             if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("audio_source")
+            {
+                audio_source = Some(value.trim().to_string()).filter(|v| !v.is_empty());
+            } else if let Some((key, value)) = extra.split_once('=')
                 && key.trim().eq_ignore_ascii_case("color_mode")
             {
                 color_mode = ColorMode::from_str(value);
@@ -1480,6 +1486,7 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
             mode,
             style,
             profile,
+            audio_source,
             zone,
             static_color,
             color_mode,
