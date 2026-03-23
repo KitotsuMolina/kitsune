@@ -2,7 +2,9 @@ use gtk::gdk;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
-use kitsune::color_resolver::{ColorMode, Palette, PaletteChannel, RgbaColor, load_palette};
+use kitsune::color_resolver::{
+    ColorMode, Palette, PaletteChannel, RgbaColor, load_palette, palette_path_for_monitor,
+};
 use std::collections::HashMap;
 use std::env;
 use std::f64::consts::PI;
@@ -292,6 +294,7 @@ struct GroupLayer {
     alpha: f64,
     auto_hide: bool,
     blend_mode: BlendMode,
+    palette_monitor: Option<String>,
     palette_channel: PaletteChannel,
     target_luma: Option<f64>,
     bars_anchor: Option<BarsAnchor>,
@@ -319,6 +322,8 @@ struct GroupLayer {
     particles_style: ParticleStyle,
     particles_color_mode: ColorMode,
     particles_static_color: RgbaColor,
+    particles_palette_channel: Option<PaletteChannel>,
+    particles_target_luma: Option<f64>,
     particles_glow_strength: Option<f64>,
     particles_alpha_mult: Option<f64>,
     particles_size_mult: Option<f64>,
@@ -334,6 +339,8 @@ struct GroupLayer {
     base_light_alpha: Option<f64>,
     base_light_color_mode: ColorMode,
     base_light_static_color: RgbaColor,
+    base_light_palette_channel: Option<PaletteChannel>,
+    base_light_target_luma: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1197,6 +1204,7 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
         let mut color_mode = ColorMode::Static;
         let mut auto_hide = mode == VisualMode::Ring;
         let mut blend_mode = BlendMode::Normal;
+        let mut palette_monitor = None;
         let mut palette_channel = PaletteChannel::Auto;
         let mut target_luma = None;
         let mut zone = SpectrumZone::Full;
@@ -1225,6 +1233,8 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
         let mut particles_style = ParticleStyle::Soft;
         let mut particles_color_mode = color_mode;
         let mut particles_static_color = RgbaColor::from_hex_with_alpha(parts[4], alpha);
+        let mut particles_palette_channel = None;
+        let mut particles_target_luma = None;
         let mut particles_glow_strength = None;
         let mut particles_alpha_mult = None;
         let mut particles_size_mult = None;
@@ -1240,6 +1250,8 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
         let mut base_light_alpha = None;
         let mut base_light_color_mode = color_mode;
         let mut base_light_static_color = RgbaColor::from_hex_with_alpha(parts[4], alpha);
+        let mut base_light_palette_channel = None;
+        let mut base_light_target_luma = None;
         if matches!(
             parts[4].to_ascii_lowercase().as_str(),
             "accent_light" | "accent_mid" | "accent_dark" | "static"
@@ -1255,6 +1267,10 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
                 color_mode = ColorMode::from_str(value);
                 particles_color_mode = color_mode;
                 base_light_color_mode = color_mode;
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("palette_monitor")
+            {
+                palette_monitor = Some(value.trim().to_string()).filter(|v| !v.is_empty());
             } else if let Some((key, value)) = extra.split_once('=')
                 && key.trim().eq_ignore_ascii_case("auto_hide")
             {
@@ -1376,6 +1392,14 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
             {
                 particles_static_color = RgbaColor::from_hex_with_alpha(value, alpha);
             } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("particles_palette_channel")
+            {
+                particles_palette_channel = Some(PaletteChannel::from_str(value));
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("particles_target_luma")
+            {
+                particles_target_luma = value.parse::<f64>().ok().map(|v| v.clamp(0.0, 1.0));
+            } else if let Some((key, value)) = extra.split_once('=')
                 && key.trim().eq_ignore_ascii_case("particles_glow_strength")
             {
                 particles_glow_strength = value.parse::<f64>().ok();
@@ -1436,6 +1460,14 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
                 && key.trim().eq_ignore_ascii_case("base_light_color")
             {
                 base_light_static_color = RgbaColor::from_hex_with_alpha(value, alpha);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("base_light_palette_channel")
+            {
+                base_light_palette_channel = Some(PaletteChannel::from_str(value));
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("base_light_target_luma")
+            {
+                base_light_target_luma = value.parse::<f64>().ok().map(|v| v.clamp(0.0, 1.0));
             }
         }
         let static_color = if color_mode == ColorMode::Static {
@@ -1454,6 +1486,7 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
             alpha,
             auto_hide,
             blend_mode,
+            palette_monitor,
             palette_channel,
             target_luma,
             bars_anchor,
@@ -1481,6 +1514,8 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
             particles_style,
             particles_color_mode,
             particles_static_color,
+            particles_palette_channel,
+            particles_target_luma,
             particles_glow_strength,
             particles_alpha_mult,
             particles_size_mult,
@@ -1496,6 +1531,8 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
             base_light_alpha,
             base_light_color_mode,
             base_light_static_color,
+            base_light_palette_channel,
+            base_light_target_luma,
         });
     }
     layers
@@ -1583,6 +1620,25 @@ fn compute_layer_energy(values: &[f64]) -> f64 {
     } else {
         values.iter().copied().sum::<f64>() / values.len() as f64
     }
+}
+
+fn palette_cache_key_for_layer(layer: &GroupLayer) -> String {
+    layer
+        .palette_monitor
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn resolve_layer_palette(
+    layer: &GroupLayer,
+    fallback: Palette,
+    palette_cache: &HashMap<String, Palette>,
+) -> Palette {
+    let key = palette_cache_key_for_layer(layer);
+    palette_cache.get(&key).copied().unwrap_or(fallback)
 }
 
 fn monitor_by_name(name: &str) -> Option<gdk::Monitor> {
@@ -1963,6 +2019,7 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let color2 = cfg.color2;
     let default_palette = Palette::from_base(color, color2);
     let palette = Arc::new(Mutex::new(load_palette(&cfg.color_palette_file, default_palette)));
+    let palette_cache = Arc::new(Mutex::new(HashMap::<String, Palette>::new()));
     let bar_width = cfg.bar_width;
     let bar_gap = cfg.bar_gap;
     let bar_corner_radius = cfg.bar_corner_radius;
@@ -1999,6 +2056,20 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
         group_path.display()
     );
     let group_layers = Arc::new(Mutex::new(parse_group_layers(&config_path, &group_path)));
+    if let Ok(layers) = group_layers.lock() {
+        let mut initial_palette_cache = HashMap::<String, Palette>::new();
+        for layer in layers.iter() {
+            let key = palette_cache_key_for_layer(layer);
+            if key.is_empty() || initial_palette_cache.contains_key(&key) {
+                continue;
+            }
+            let path = palette_path_for_monitor(&cfg.color_palette_file, Some(&key));
+            initial_palette_cache.insert(key, load_palette(&path, default_palette));
+        }
+        if let Ok(mut target) = palette_cache.lock() {
+            *target = initial_palette_cache;
+        }
+    }
     let group_layers_for_timer = Arc::clone(&group_layers);
     let group_last_mtime = Arc::new(Mutex::new(fs::metadata(&group_path).and_then(|m| m.modified()).ok()));
     let group_last_mtime_for_timer = Arc::clone(&group_last_mtime);
@@ -2012,6 +2083,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let ring_fade_out_sec = cfg.ring_fade_out_sec;
     let palette_file = cfg.color_palette_file.clone();
     let palette_for_timer = Arc::clone(&palette);
+    let palette_cache_for_draw = Arc::clone(&palette_cache);
+    let palette_cache_for_tick = Arc::clone(&palette_cache);
+    let palette_cache_for_reload = Arc::clone(&palette_cache);
     let stream_for_draw = Arc::clone(&stream);
     let stream_for_timer = Arc::clone(&stream);
     let stream_for_tick = Arc::clone(&stream);
@@ -2085,6 +2159,10 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             .map(|v| v.clone())
             .unwrap_or_else(|_| vec![0.0; values.len()]);
         let current_palette = palette.lock().map(|v| *v).unwrap_or(default_palette);
+        let palette_cache_snapshot = palette_cache_for_draw
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_default();
         let resolved_base_light_color = current_palette.resolve_with_contrast_guard(
             base_light_color_mode,
             base_light_color,
@@ -2110,10 +2188,11 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 if !layer.enabled {
                     continue;
                 }
+                let layer_palette = resolve_layer_palette(layer, current_palette, &palette_cache_snapshot);
                 let base_color = if layer.color_mode == ColorMode::Static {
                     layer.static_color
                 } else {
-                    current_palette.resolve_custom_dynamic(
+                    layer_palette.resolve_custom_dynamic(
                         layer.color_mode,
                         layer.static_color,
                         layer.palette_channel,
@@ -2125,11 +2204,13 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 let layer_base_light_color = if layer.base_light_color_mode == ColorMode::Static {
                     layer.base_light_static_color
                 } else {
-                    current_palette.resolve_custom_dynamic(
+                    layer_palette.resolve_custom_dynamic(
                         layer.base_light_color_mode,
                         layer.base_light_static_color,
-                        layer.palette_channel,
-                        layer.target_luma,
+                        layer.base_light_palette_channel.unwrap_or(layer.palette_channel),
+                        layer
+                            .base_light_target_luma
+                            .or_else(|| layer.target_luma.map(|v| (v + 0.12).clamp(0.0, 1.0))),
                         dynamic_contrast_guard,
                         dynamic_contrast_threshold,
                     )
@@ -2185,9 +2266,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 }
                 let layer_color2 = gradient_color(
                     base_color,
-                    current_palette.resolve_custom_dynamic(
+                    layer_palette.resolve_custom_dynamic(
                         ColorMode::AccentLight,
-                        current_palette.accent_light,
+                        layer_palette.accent_light,
                         layer.palette_channel,
                         layer.target_luma.map(|v| (v + 0.12).clamp(0.0, 1.0)),
                         dynamic_contrast_guard,
@@ -2287,9 +2368,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     && let Some(live_particles) = layer_particles.get(layer_index)
                 {
                     let (particle_color, particle_color2) = resolve_group_layer_particle_colors(
-                        current_palette,
+                        layer_palette,
                         layer,
-                        color2,
+                        layer_palette.accent_light,
                         dynamic_contrast_guard,
                         dynamic_contrast_threshold,
                     );
@@ -2516,6 +2597,10 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     .lock()
                     .map(|v| *v)
                     .unwrap_or(default_palette);
+                let palette_cache_snapshot = palette_cache_for_tick
+                    .lock()
+                    .map(|v| v.clone())
+                    .unwrap_or_default();
                 let mut spawn_budget = particles_spawn_rate * particle_dt;
                 if let Ok(mut accum) = particle_accum_for_timer.lock() {
                     *accum += spawn_budget;
@@ -2556,10 +2641,12 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                                 if total_count >= particles_max {
                                     break;
                                 }
+                                let layer_palette =
+                                    resolve_layer_palette(layer, palette_snapshot, &palette_cache_snapshot);
                                 let (primary, secondary) = resolve_group_layer_particle_colors(
-                                    palette_snapshot,
+                                    layer_palette,
                                     layer,
-                                    color2,
+                                    layer_palette.accent_light,
                                     dynamic_contrast_guard,
                                     dynamic_contrast_threshold,
                                 );
@@ -2671,11 +2758,24 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
         if let Ok(mut target) = palette_for_timer.lock() {
             *target = loaded_palette;
         }
-        let snapshot = stream_for_timer.lock().map(|v| v.clone()).unwrap_or_default();
-        let layers = group_layers_for_timer
+        let layers_snapshot = group_layers_for_timer
             .lock()
             .map(|v| v.clone())
             .unwrap_or_default();
+        let mut next_palette_cache = HashMap::<String, Palette>::new();
+        for layer in &layers_snapshot {
+            let key = palette_cache_key_for_layer(layer);
+            if key.is_empty() || next_palette_cache.contains_key(&key) {
+                continue;
+            }
+            let path = palette_path_for_monitor(&palette_file, Some(&key));
+            next_palette_cache.insert(key, load_palette(&path, default_palette));
+        }
+        if let Ok(mut target) = palette_cache_for_reload.lock() {
+            *target = next_palette_cache;
+        }
+        let snapshot = stream_for_timer.lock().map(|v| v.clone()).unwrap_or_default();
+        let layers = layers_snapshot;
         if let Ok(mut vis) = group_visibility_for_timer.lock() {
             if vis.len() != layers.len() {
                 vis.resize(
@@ -2836,8 +2936,8 @@ fn resolve_group_layer_particle_colors(
         palette.resolve_custom_dynamic(
             layer.particles_color_mode,
             layer.particles_static_color,
-            layer.palette_channel,
-            layer.target_luma,
+            layer.particles_palette_channel.unwrap_or(layer.palette_channel),
+            layer.particles_target_luma.or(layer.target_luma),
             dynamic_contrast_guard,
             dynamic_contrast_threshold,
         )
@@ -2847,8 +2947,11 @@ fn resolve_group_layer_particle_colors(
         palette.resolve_custom_dynamic(
             ColorMode::AccentLight,
             fallback_secondary,
-            layer.palette_channel,
-            layer.target_luma.map(|v| (v + 0.14).clamp(0.0, 1.0)),
+            layer.particles_palette_channel.unwrap_or(layer.palette_channel),
+            layer
+                .particles_target_luma
+                .or(layer.target_luma)
+                .map(|v| (v + 0.14).clamp(0.0, 1.0)),
             dynamic_contrast_guard,
             dynamic_contrast_threshold,
         ),

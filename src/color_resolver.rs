@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{cmp::Ordering, fs};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +77,38 @@ impl RgbaColor {
             (self.b.clamp(0.0, 1.0) * 255.0).round() as u8
         )
     }
+}
+
+pub fn sanitize_palette_monitor(raw: &str) -> String {
+    raw.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+pub fn palette_path_for_monitor(base: &Path, monitor: Option<&str>) -> PathBuf {
+    let Some(raw_monitor) = monitor.map(str::trim).filter(|value| !value.is_empty()) else {
+        return base.to_path_buf();
+    };
+    let monitor = sanitize_palette_monitor(raw_monitor);
+    let parent = base.parent().map(Path::to_path_buf).unwrap_or_default();
+    let stem = base
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("kitsune-accent");
+    let ext = base.extension().and_then(|value| value.to_str()).unwrap_or("");
+    let file_name = if ext.is_empty() {
+        format!("{stem}-{monitor}")
+    } else {
+        format!("{stem}-{monitor}.{ext}")
+    };
+    parent.join(file_name)
 }
 
 #[derive(Debug, Clone, Copy)]

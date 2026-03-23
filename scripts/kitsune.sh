@@ -2609,18 +2609,19 @@ case "$cmd" in
             esac
           done
           file="$(resolve_group_file "$file_arg")" || { echo "[x] No existe group file"; exit 1; }
-          resolver_bin="$(command -v kitsune-color-resolve || true)"
+          resolver_bin=""
+          if [[ -x "./target/release/kitsune-color-resolve" ]]; then
+            resolver_bin="./target/release/kitsune-color-resolve"
+          elif [[ -x "./target/debug/kitsune-color-resolve" ]]; then
+            resolver_bin="./target/debug/kitsune-color-resolve"
+          elif [[ -n "${KITSUNE_BIN_DIR:-}" && -x "${KITSUNE_BIN_DIR}/kitsune-color-resolve" ]]; then
+            resolver_bin="${KITSUNE_BIN_DIR}/kitsune-color-resolve"
+          else
+            resolver_bin="$(command -v kitsune-color-resolve || true)"
+          fi
           if [[ -z "$resolver_bin" ]]; then
-            if [[ -n "${KITSUNE_BIN_DIR:-}" && -x "${KITSUNE_BIN_DIR}/kitsune-color-resolve" ]]; then
-              resolver_bin="${KITSUNE_BIN_DIR}/kitsune-color-resolve"
-            elif [[ -x "./target/release/kitsune-color-resolve" ]]; then
-              resolver_bin="./target/release/kitsune-color-resolve"
-            elif [[ -x "./target/debug/kitsune-color-resolve" ]]; then
-              resolver_bin="./target/debug/kitsune-color-resolve"
-            else
-              echo "[x] No se encontro kitsune-color-resolve. Compila con: cargo build --release --bin kitsune-color-resolve"
-              exit 1
-            fi
+            echo "[x] No se encontro kitsune-color-resolve. Compila con: cargo build --release --bin kitsune-color-resolve"
+            exit 1
           fi
           resolver_args=(--cfg "$CFG" --group-file "$file" --layer "$idx")
           if [[ -n "$spec_override" ]]; then

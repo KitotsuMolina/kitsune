@@ -1,4 +1,6 @@
-use kitsune::color_resolver::{ColorMode, Palette, PaletteChannel, RgbaColor, load_palette};
+use kitsune::color_resolver::{
+    ColorMode, Palette, PaletteChannel, RgbaColor, load_palette, palette_path_for_monitor,
+};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -8,6 +10,7 @@ use std::path::{Path, PathBuf};
 struct LayerColorRequest {
     color_mode: ColorMode,
     static_color: RgbaColor,
+    palette_monitor: Option<String>,
     palette_channel: PaletteChannel,
     target_luma: Option<f64>,
     particles_color_mode: ColorMode,
@@ -45,6 +48,7 @@ fn parse_layer_parts(parts: &[&str]) -> Result<LayerColorRequest, String> {
     let mut color_mode = ColorMode::Static;
     let mut particles_color_mode = ColorMode::Static;
     let mut base_light_color_mode = ColorMode::Static;
+    let mut palette_monitor = None;
     let mut palette_channel = PaletteChannel::Auto;
     let mut target_luma = None;
     let mut particles_static_color = RgbaColor::from_hex_with_alpha(parts[4], alpha);
@@ -68,6 +72,8 @@ fn parse_layer_parts(parts: &[&str]) -> Result<LayerColorRequest, String> {
                 color_mode = ColorMode::from_str(value);
                 particles_color_mode = color_mode;
                 base_light_color_mode = color_mode;
+            } else if key.eq_ignore_ascii_case("palette_monitor") {
+                palette_monitor = Some(value.trim().to_string()).filter(|v| !v.is_empty());
             } else if key.eq_ignore_ascii_case("palette_channel") {
                 palette_channel = PaletteChannel::from_str(value);
             } else if key.eq_ignore_ascii_case("target_luma") {
@@ -99,6 +105,7 @@ fn parse_layer_parts(parts: &[&str]) -> Result<LayerColorRequest, String> {
     Ok(LayerColorRequest {
         color_mode,
         static_color,
+        palette_monitor,
         palette_channel,
         target_luma,
         particles_color_mode,
@@ -162,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let group_file = parse_arg_value(&args, "--group-file");
     let group_path = group_file.as_ref().map(PathBuf::from);
     let cfg = parse_cfg(&cfg_path);
-    let palette_path = PathBuf::from(
+    let base_palette_path = PathBuf::from(
         parse_arg_value(&args, "--palette-file")
             .or_else(|| cfg.get("color_palette_file").cloned())
             .unwrap_or_else(|| "/tmp/kitsune-accent.palette".to_string()),
@@ -185,13 +192,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(0.72)
         .clamp(0.0, 1.0);
     let fallback = Palette::from_base(base_color, alt_color);
-    let palette = load_palette(&palette_path, fallback);
     let layer = if let Some(spec) = spec_override.as_deref() {
         parse_layer_from_spec(spec)?
     } else {
         let group_path = group_path.ok_or("missing --group-file")?;
         parse_layer_from_group(&group_path, layer_index)?
     };
+    let palette_path = palette_path_for_monitor(&base_palette_path, layer.palette_monitor.as_deref());
+    let palette = load_palette(&palette_path, fallback);
 
     let layer_color = if layer.color_mode == ColorMode::Static {
         layer.static_color
@@ -233,11 +241,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     println!(
-        "{{\"ok\":true,\"layer_color\":\"{}\",\"particles_color\":\"{}\",\"base_light_color\":\"{}\",\"debug\":{{\"palette_file\":\"{}\",\"channel\":\"{}\",\"target_luma\":{},\"contrast_guard\":{},\"contrast_threshold\":{}}}}}",
+        "{{\"ok\":true,\"layer_color\":\"{}\",\"particles_color\":\"{}\",\"base_light_color\":\"{}\",\"debug\":{{\"palette_file\":\"{}\",\"palette_monitor\":{},\"channel\":\"{}\",\"target_luma\":{},\"contrast_guard\":{},\"contrast_threshold\":{}}}}}",
         layer_color.to_hex(),
         particles_color.to_hex(),
         base_light_color.to_hex(),
         palette_path.display(),
+        layer
+            .palette_monitor
+            .as_ref()
+            .map(|value| format!("\"{}\"", value.replace('\"', "\\\"")))
+            .unwrap_or_else(|| "null".to_string()),
         match layer.palette_channel {
             PaletteChannel::Auto => "auto",
             PaletteChannel::Red => "r",
