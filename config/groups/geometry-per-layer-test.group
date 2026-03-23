@@ -1,0 +1,8 @@
+# Geometry per-layer test
+# Top bars: thinner and denser
+# Ring: compact and shorter
+# Bottom bars: thicker and segmented
+
+layer=1,bars,bars,bars_soft,#7ae8ff,0.44,standard,0,color_mode=static,bars_anchor=top,bars_direction=down,bar_width=4,bar_gap=1.2,line_max_height_ratio=0.42,bars_wave_thickness=2.4,particles=1,particles_mode=bars_base,particles_style=trail,particles_color=#7ae8ff,particles_color_mode=static,base_light=1,base_light_alpha=0.22,base_light_height=14,base_light_color=#7ae8ff,base_light_color_mode=static
+layer=1,ring,bars,ring_energy,#ff8fd8,0.42,standard,0,color_mode=static,ring_inner_ratio=0.14,ring_length_ratio=0.14,ring_wave_thickness=1.8,ring_dot_radius=1.6,particles=1,particles_mode=ring_center,particles_style=orbit,particles_color=#ff8fd8,particles_color_mode=static,afterglow=1,afterglow_alpha=0.16,afterglow_decay=0.82
+layer=1,bars,bars,bars_soft,#ffd84a,0.50,standard,0,color_mode=static,bars_anchor=bottom,bars_direction=up,bar_width=9,bar_gap=3.6,bar_corner_radius=5,segmented_bars=1,segment_length=10,segment_gap=5,line_max_height_ratio=0.56,particles=1,particles_mode=bars_base,particles_style=orb,particles_color=#ffd84a,particles_color_mode=static,base_light=1,base_light_alpha=0.30,base_light_height=22,base_light_color=#ffd84a,base_light_color_mode=static

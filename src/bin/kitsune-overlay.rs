@@ -333,6 +333,24 @@ struct GroupLayer {
     target_luma: Option<f64>,
     bars_anchor: Option<BarsAnchor>,
     bars_direction: Option<BarsDirection>,
+    bar_width: Option<f64>,
+    bar_gap: Option<f64>,
+    bar_corner_radius: Option<f64>,
+    segmented_bars: Option<bool>,
+    segment_length: Option<f64>,
+    segment_gap: Option<f64>,
+    line_max_height_ratio: Option<f64>,
+    ring_inner_ratio: Option<f64>,
+    ring_length_ratio: Option<f64>,
+    bars_wave_thickness: Option<f64>,
+    bars_dot_radius: Option<f64>,
+    ring_wave_thickness: Option<f64>,
+    ring_dot_radius: Option<f64>,
+    bars_wave_roundness: Option<f64>,
+    ring_wave_roundness: Option<f64>,
+    ring_fill_softness: Option<f64>,
+    ring_fill_overlap_px: Option<f64>,
+    polygon_sides: Option<usize>,
     particles_enabled: bool,
     particles_mode: ParticleMode,
     particles_style: ParticleStyle,
@@ -1465,6 +1483,24 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
         let mut zone = SpectrumZone::Full;
         let mut bars_anchor = None;
         let mut bars_direction = None;
+        let mut bar_width = None;
+        let mut bar_gap = None;
+        let mut bar_corner_radius = None;
+        let mut segmented_bars = None;
+        let mut segment_length = None;
+        let mut segment_gap = None;
+        let mut line_max_height_ratio = None;
+        let mut ring_inner_ratio = None;
+        let mut ring_length_ratio = None;
+        let mut bars_wave_thickness = None;
+        let mut bars_dot_radius = None;
+        let mut ring_wave_thickness = None;
+        let mut ring_dot_radius = None;
+        let mut bars_wave_roundness = None;
+        let mut ring_wave_roundness = None;
+        let mut ring_fill_softness = None;
+        let mut ring_fill_overlap_px = None;
+        let mut polygon_sides = None;
         let mut particles_enabled = false;
         let mut particles_mode = ParticleMode::Auto;
         let mut particles_style = ParticleStyle::Soft;
@@ -1528,6 +1564,78 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
                 && key.trim().eq_ignore_ascii_case("bars_direction")
             {
                 bars_direction = Some(BarsDirection::from_str(value));
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("bar_width")
+            {
+                bar_width = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("bar_gap")
+            {
+                bar_gap = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("bar_corner_radius")
+            {
+                bar_corner_radius = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("segmented_bars")
+            {
+                segmented_bars = Some(parse_boolish(value));
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("segment_length")
+            {
+                segment_length = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("segment_gap")
+            {
+                segment_gap = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("line_max_height_ratio")
+            {
+                line_max_height_ratio = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("ring_inner_ratio")
+            {
+                ring_inner_ratio = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("ring_length_ratio")
+            {
+                ring_length_ratio = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("bars_wave_thickness")
+            {
+                bars_wave_thickness = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("bars_dot_radius")
+            {
+                bars_dot_radius = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("ring_wave_thickness")
+            {
+                ring_wave_thickness = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("ring_dot_radius")
+            {
+                ring_dot_radius = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("bars_wave_roundness")
+            {
+                bars_wave_roundness = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("ring_wave_roundness")
+            {
+                ring_wave_roundness = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("ring_fill_softness")
+            {
+                ring_fill_softness = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("ring_fill_overlap_px")
+            {
+                ring_fill_overlap_px = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("polygon_sides")
+            {
+                polygon_sides = value.parse::<usize>().ok();
             } else if let Some((key, value)) = extra.split_once('=')
                 && key.trim().eq_ignore_ascii_case("particles")
             {
@@ -1631,6 +1739,24 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
             target_luma,
             bars_anchor,
             bars_direction,
+            bar_width,
+            bar_gap,
+            bar_corner_radius,
+            segmented_bars,
+            segment_length,
+            segment_gap,
+            line_max_height_ratio,
+            ring_inner_ratio,
+            ring_length_ratio,
+            bars_wave_thickness,
+            bars_dot_radius,
+            ring_wave_thickness,
+            ring_dot_radius,
+            bars_wave_roundness,
+            ring_wave_roundness,
+            ring_fill_softness,
+            ring_fill_overlap_px,
+            polygon_sides,
             particles_enabled,
             particles_mode,
             particles_style,
@@ -2374,6 +2500,31 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 let layer_base_light_enabled = layer.base_light_enabled;
                 let layer_base_light_height = layer.base_light_height.unwrap_or(base_light_height);
                 let layer_base_light_alpha = layer.base_light_alpha.unwrap_or(base_light_alpha);
+                let layer_bar_width = layer.bar_width.unwrap_or(bar_width);
+                let layer_bar_gap = layer.bar_gap.unwrap_or(bar_gap);
+                let layer_bar_corner_radius = layer.bar_corner_radius.unwrap_or(bar_corner_radius);
+                let layer_segmented_bars = layer.segmented_bars.unwrap_or(segmented_bars);
+                let layer_segment_length = layer.segment_length.unwrap_or(segment_length);
+                let layer_segment_gap = layer.segment_gap.unwrap_or(segment_gap);
+                let layer_line_max_height_ratio =
+                    layer.line_max_height_ratio.unwrap_or(line_max_height_ratio);
+                let layer_ring_inner_ratio = layer.ring_inner_ratio.unwrap_or(ring_inner_ratio);
+                let layer_ring_length_ratio = layer.ring_length_ratio.unwrap_or(ring_length_ratio);
+                let layer_bars_wave_thickness =
+                    layer.bars_wave_thickness.unwrap_or(bars_wave_thickness);
+                let layer_bars_dot_radius = layer.bars_dot_radius.unwrap_or(bars_dot_radius);
+                let layer_ring_wave_thickness =
+                    layer.ring_wave_thickness.unwrap_or(ring_wave_thickness);
+                let layer_ring_dot_radius = layer.ring_dot_radius.unwrap_or(ring_dot_radius);
+                let layer_bars_wave_roundness =
+                    layer.bars_wave_roundness.unwrap_or(bars_wave_roundness);
+                let layer_ring_wave_roundness =
+                    layer.ring_wave_roundness.unwrap_or(ring_wave_roundness);
+                let layer_ring_fill_softness =
+                    layer.ring_fill_softness.unwrap_or(ring_fill_softness);
+                let layer_ring_fill_overlap_px =
+                    layer.ring_fill_overlap_px.unwrap_or(ring_fill_overlap_px);
+                let layer_polygon_sides = layer.polygon_sides.unwrap_or(polygon_sides);
                 let zoned_values = apply_spectrum_zone(&values, layer.zone);
                 let layer_values = apply_layer_profile(&zoned_values, layer.mode, &layer.profile);
                 let visibility_alpha = vis
@@ -2412,26 +2563,26 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                         layer.style,
                         gradient_color(base_color, layer_color2, 0.45),
                         layer_color2,
-                        bar_width,
-                        bar_gap,
-                        bar_corner_radius,
-                        segmented_bars,
-                        segment_length,
-                        segment_gap,
-                        bars_wave_thickness,
-                        bars_dot_radius,
-                        ring_wave_thickness,
-                        ring_dot_radius,
-                        bars_wave_roundness,
-                        ring_wave_roundness,
-                        ring_fill_softness,
-                        ring_fill_overlap_px,
-                        line_max_height_ratio,
+                        layer_bar_width,
+                        layer_bar_gap,
+                        layer_bar_corner_radius,
+                        layer_segmented_bars,
+                        layer_segment_length,
+                        layer_segment_gap,
+                        layer_bars_wave_thickness,
+                        layer_bars_dot_radius,
+                        layer_ring_wave_thickness,
+                        layer_ring_dot_radius,
+                        layer_bars_wave_roundness,
+                        layer_ring_wave_roundness,
+                        layer_ring_fill_softness,
+                        layer_ring_fill_overlap_px,
+                        layer_line_max_height_ratio,
                         layer_bars_anchor,
                         layer_bars_direction,
-                        ring_inner_ratio,
-                        ring_length_ratio,
-                        polygon_sides,
+                        layer_ring_inner_ratio,
+                        layer_ring_length_ratio,
+                        layer_polygon_sides,
                         (layer_alpha * layer_afterglow_alpha).clamp(0.0, 1.0),
                         false,
                         layer_glow_style,
@@ -2452,26 +2603,26 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     layer.style,
                     base_color,
                     layer_color2,
-                    bar_width,
-                    bar_gap,
-                    bar_corner_radius,
-                    segmented_bars,
-                    segment_length,
-                    segment_gap,
-                    bars_wave_thickness,
-                    bars_dot_radius,
-                    ring_wave_thickness,
-                    ring_dot_radius,
-                    bars_wave_roundness,
-                    ring_wave_roundness,
-                    ring_fill_softness,
-                    ring_fill_overlap_px,
-                    line_max_height_ratio,
+                    layer_bar_width,
+                    layer_bar_gap,
+                    layer_bar_corner_radius,
+                    layer_segmented_bars,
+                    layer_segment_length,
+                    layer_segment_gap,
+                    layer_bars_wave_thickness,
+                    layer_bars_dot_radius,
+                    layer_ring_wave_thickness,
+                    layer_ring_dot_radius,
+                    layer_bars_wave_roundness,
+                    layer_ring_wave_roundness,
+                    layer_ring_fill_softness,
+                    layer_ring_fill_overlap_px,
+                    layer_line_max_height_ratio,
                     layer_bars_anchor,
                     layer_bars_direction,
-                    ring_inner_ratio,
-                    ring_length_ratio,
-                    polygon_sides,
+                    layer_ring_inner_ratio,
+                    layer_ring_length_ratio,
+                    layer_polygon_sides,
                     layer_alpha,
                     layer_neon_enabled,
                     layer_glow_style,
@@ -3073,6 +3224,12 @@ fn spawn_group_layer_particle(
     let mut particle = match mode {
         ParticleMode::RingCenter => {
             let mut particle = spawn_overlay_particle(rng, mode, width, height, cfg);
+            let inner = width.min(height) * layer.ring_inner_ratio.unwrap_or(cfg.ring_inner_ratio);
+            let angle = (particle.y - (height * 0.5)).atan2(particle.x - (width * 0.5));
+            let spread = lerp(0.0, width.min(height) * 0.018, pseudo_rand01(rng));
+            let origin_radius = inner + spread;
+            particle.x = (width * 0.5) + angle.cos() * origin_radius;
+            particle.y = (height * 0.5) + angle.sin() * origin_radius;
             particle.life *= tuning.life_mult;
             if layer.particles_style == ParticleStyle::Orbit {
                 let cx = width * 0.5;
