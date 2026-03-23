@@ -320,11 +320,25 @@ extract_palette_roles() {
       .map((candidate, index) => `candidate_${index + 1}=${candidate.hex}`)
       .join("\n");
     const channelCandidates = (methodName, prefix) => {
-      return candidates
+      const channelPool = candidates
         .filter((candidate) => dominantChannel(candidate, methodName))
+        .map((candidate) => ({...candidate, hex: vividify(candidate.hex, methodName)}));
+      const generic = channelPool
         .slice(0, 4)
-        .map((candidate, index) => `${prefix}_${index + 1}=${vividify(candidate.hex, methodName)}`)
-        .join("\n");
+        .map((candidate, index) => `${prefix}_${index + 1}=${candidate.hex}`);
+      const chooseBand = (targetL) => {
+        return channelPool
+          .map((candidate) => ({ candidate, score: Math.abs(candidate.l - targetL) - Math.min(candidate.s, 1) * 0.08 }))
+          .sort((a, b) => a.score - b.score)[0]?.candidate ?? null;
+      };
+      const dark = chooseBand(darkTarget);
+      const midBand = chooseBand(midTarget);
+      const lightBand = chooseBand(lightTarget);
+      const bands = [];
+      if (dark) bands.push(`${prefix}_dark_1=${dark.hex}`);
+      if (midBand) bands.push(`${prefix}_mid_1=${midBand.hex}`);
+      if (lightBand) bands.push(`${prefix}_light_1=${lightBand.hex}`);
+      return [...generic, ...bands].join("\n");
     };
     const exportR = channelCandidates("rgb_r", "candidate_r");
     const exportG = channelCandidates("rgb_g", "candidate_g");
@@ -426,10 +440,19 @@ derive_palette_roles() {
       "candidate_2=" + midHex + "\n" +
       "candidate_3=" + darkHex + "\n" +
       "candidate_r_1=" + midHex + "\n" +
+      "candidate_r_dark_1=" + darkHex + "\n" +
+      "candidate_r_mid_1=" + midHex + "\n" +
+      "candidate_r_light_1=" + lightHex + "\n" +
       "candidate_g_1=" + midHex + "\n" +
+      "candidate_g_dark_1=" + darkHex + "\n" +
+      "candidate_g_mid_1=" + midHex + "\n" +
+      "candidate_g_light_1=" + lightHex + "\n" +
       "candidate_b_1=" + lightHex + "\n" +
       "candidate_b_2=" + midHex + "\n" +
-      "candidate_b_3=" + darkHex + "\n"
+      "candidate_b_3=" + darkHex + "\n" +
+      "candidate_b_dark_1=" + darkHex + "\n" +
+      "candidate_b_mid_1=" + midHex + "\n" +
+      "candidate_b_light_1=" + lightHex + "\n"
     );
   ' "$hex" "$bg_luma" "$target_light" "$target_mid" "$target_dark" 2>/dev/null || true
 }

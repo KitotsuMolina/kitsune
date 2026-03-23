@@ -92,6 +92,24 @@ pub struct Palette {
     pub green_candidate_count: usize,
     pub blue_candidates: [RgbaColor; 4],
     pub blue_candidate_count: usize,
+    pub red_dark: RgbaColor,
+    pub red_mid: RgbaColor,
+    pub red_light: RgbaColor,
+    pub has_red_dark: bool,
+    pub has_red_mid: bool,
+    pub has_red_light: bool,
+    pub green_dark: RgbaColor,
+    pub green_mid: RgbaColor,
+    pub green_light: RgbaColor,
+    pub has_green_dark: bool,
+    pub has_green_mid: bool,
+    pub has_green_light: bool,
+    pub blue_dark: RgbaColor,
+    pub blue_mid: RgbaColor,
+    pub blue_light: RgbaColor,
+    pub has_blue_dark: bool,
+    pub has_blue_mid: bool,
+    pub has_blue_light: bool,
 }
 
 impl Palette {
@@ -137,6 +155,24 @@ impl Palette {
             green_candidate_count: 0,
             blue_candidates: [accent_mid; 4],
             blue_candidate_count: 0,
+            red_dark: accent_dark,
+            red_mid: accent_mid,
+            red_light: accent_light,
+            has_red_dark: false,
+            has_red_mid: false,
+            has_red_light: false,
+            green_dark: accent_dark,
+            green_mid: accent_mid,
+            green_light: accent_light,
+            has_green_dark: false,
+            has_green_mid: false,
+            has_green_light: false,
+            blue_dark: accent_dark,
+            blue_mid: accent_mid,
+            blue_light: accent_light,
+            has_blue_dark: false,
+            has_blue_mid: false,
+            has_blue_light: false,
         }
     }
 
@@ -276,6 +312,12 @@ impl Palette {
             }
             _ => Vec::new(),
         };
+        let target_luma = target_luma.unwrap_or(color_luma(base)).clamp(0.0, 1.0);
+        if channel != PaletteChannel::Auto {
+            if let Some(color) = self.resolve_banded_channel(channel, target_luma) {
+                return color;
+            }
+        }
         let filtered_general: Vec<RgbaColor> = general_candidates
             .iter()
             .copied()
@@ -288,7 +330,6 @@ impl Palette {
         } else {
             &general_candidates
         };
-        let target_luma = target_luma.unwrap_or(color_luma(base)).clamp(0.0, 1.0);
         pool.iter()
             .copied()
             .min_by(|a, b| {
@@ -297,6 +338,73 @@ impl Palette {
                 a_score.partial_cmp(&b_score).unwrap_or(Ordering::Equal)
             })
             .unwrap_or(base)
+    }
+
+    fn resolve_banded_channel(&self, channel: PaletteChannel, target_luma: f64) -> Option<RgbaColor> {
+        let (dark, has_dark, mid, has_mid, light, has_light) = match channel {
+            PaletteChannel::Red => (
+                self.red_dark,
+                self.has_red_dark,
+                self.red_mid,
+                self.has_red_mid,
+                self.red_light,
+                self.has_red_light,
+            ),
+            PaletteChannel::Green => (
+                self.green_dark,
+                self.has_green_dark,
+                self.green_mid,
+                self.has_green_mid,
+                self.green_light,
+                self.has_green_light,
+            ),
+            PaletteChannel::Blue => (
+                self.blue_dark,
+                self.has_blue_dark,
+                self.blue_mid,
+                self.has_blue_mid,
+                self.blue_light,
+                self.has_blue_light,
+            ),
+            PaletteChannel::Auto => return None,
+        };
+
+        let mut points: Vec<(f64, RgbaColor)> = Vec::new();
+        if has_dark {
+            points.push((0.26, dark));
+        }
+        if has_mid {
+            points.push((0.52, mid));
+        }
+        if has_light {
+            points.push((0.78, light));
+        }
+        if points.is_empty() {
+            return None;
+        }
+        points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
+        if points.len() == 1 {
+            return Some(points[0].1);
+        }
+        if target_luma <= points[0].0 {
+            return Some(points[0].1);
+        }
+        if target_luma >= points[points.len() - 1].0 {
+            return Some(points[points.len() - 1].1);
+        }
+        for window in points.windows(2) {
+            let (l0, c0) = window[0];
+            let (l1, c1) = window[1];
+            if target_luma >= l0 && target_luma <= l1 {
+                let t = if (l1 - l0).abs() < f64::EPSILON {
+                    0.0
+                } else {
+                    (target_luma - l0) / (l1 - l0)
+                };
+                return Some(interpolate_color(c0, c1, t));
+            }
+        }
+        Some(points[0].1)
     }
 }
 
@@ -315,6 +423,24 @@ pub fn load_palette(path: &Path, fallback: Palette) -> Palette {
     let mut green_candidate_count = 0_usize;
     let mut blue_candidates = [fallback.accent_mid; 4];
     let mut blue_candidate_count = 0_usize;
+    let mut red_dark = fallback.red_dark;
+    let mut red_mid = fallback.red_mid;
+    let mut red_light = fallback.red_light;
+    let mut has_red_dark = false;
+    let mut has_red_mid = false;
+    let mut has_red_light = false;
+    let mut green_dark = fallback.green_dark;
+    let mut green_mid = fallback.green_mid;
+    let mut green_light = fallback.green_light;
+    let mut has_green_dark = false;
+    let mut has_green_mid = false;
+    let mut has_green_light = false;
+    let mut blue_dark = fallback.blue_dark;
+    let mut blue_mid = fallback.blue_mid;
+    let mut blue_light = fallback.blue_light;
+    let mut has_blue_dark = false;
+    let mut has_blue_mid = false;
+    let mut has_blue_light = false;
     for line in raw.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -329,18 +455,48 @@ pub fn load_palette(path: &Path, fallback: Palette) -> Palette {
             "accent_mid" => mid = Some(parsed),
             "accent_dark" => dark = Some(parsed),
             k if k.starts_with("candidate_r_") => {
+                if k.starts_with("candidate_r_dark_") {
+                    red_dark = parsed;
+                    has_red_dark = true;
+                } else if k.starts_with("candidate_r_mid_") {
+                    red_mid = parsed;
+                    has_red_mid = true;
+                } else if k.starts_with("candidate_r_light_") {
+                    red_light = parsed;
+                    has_red_light = true;
+                }
                 if red_candidate_count < red_candidates.len() {
                     red_candidates[red_candidate_count] = parsed;
                     red_candidate_count += 1;
                 }
             }
             k if k.starts_with("candidate_g_") => {
+                if k.starts_with("candidate_g_dark_") {
+                    green_dark = parsed;
+                    has_green_dark = true;
+                } else if k.starts_with("candidate_g_mid_") {
+                    green_mid = parsed;
+                    has_green_mid = true;
+                } else if k.starts_with("candidate_g_light_") {
+                    green_light = parsed;
+                    has_green_light = true;
+                }
                 if green_candidate_count < green_candidates.len() {
                     green_candidates[green_candidate_count] = parsed;
                     green_candidate_count += 1;
                 }
             }
             k if k.starts_with("candidate_b_") => {
+                if k.starts_with("candidate_b_dark_") {
+                    blue_dark = parsed;
+                    has_blue_dark = true;
+                } else if k.starts_with("candidate_b_mid_") {
+                    blue_mid = parsed;
+                    has_blue_mid = true;
+                } else if k.starts_with("candidate_b_light_") {
+                    blue_light = parsed;
+                    has_blue_light = true;
+                }
                 if blue_candidate_count < blue_candidates.len() {
                     blue_candidates[blue_candidate_count] = parsed;
                     blue_candidate_count += 1;
@@ -399,6 +555,24 @@ pub fn load_palette(path: &Path, fallback: Palette) -> Palette {
         } else {
             fallback.blue_candidate_count
         },
+        red_dark,
+        red_mid,
+        red_light,
+        has_red_dark,
+        has_red_mid,
+        has_red_light,
+        green_dark,
+        green_mid,
+        green_light,
+        has_green_dark,
+        has_green_mid,
+        has_green_light,
+        blue_dark,
+        blue_mid,
+        blue_light,
+        has_blue_dark,
+        has_blue_mid,
+        has_blue_light,
     }
 }
 
@@ -452,4 +626,14 @@ fn vivid_color(mut color: RgbaColor) -> RgbaColor {
         color.b = (avg + (color.b - avg) * boost).clamp(0.0, 1.0);
     }
     color
+}
+
+fn interpolate_color(a: RgbaColor, b: RgbaColor, t: f64) -> RgbaColor {
+    let t = t.clamp(0.0, 1.0);
+    RgbaColor {
+        r: a.r + ((b.r - a.r) * t),
+        g: a.g + ((b.g - a.g) * t),
+        b: a.b + ((b.b - a.b) * t),
+        a: a.a + ((b.a - a.a) * t),
+    }
 }
