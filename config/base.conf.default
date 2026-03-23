@@ -64,7 +64,7 @@ particles_drift=24
 particles_fade_jitter=0.35
 particles_layer=back
 particles_color=#FFFFFF
-particles_color_mode=static
+particles_color_mode=accent_mid
 particles_glow_strength=1.20
 base_light_enabled=0
 base_light_height=22
@@ -110,3 +110,7 @@ profile_dir=./config/profiles
 # Comma-separated profile names (without extension)
 bars_profiles=bars_soft,bars_balanced,bars_punchy
 ring_profiles=ring_video_uno,ring_video_dos,ring_energy
+render_quality=balanced
+particles_update_divisor=2
+particle_glow_pass_cap=2
+afterglow_update_divisor=2

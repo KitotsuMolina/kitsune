@@ -1,0 +1,8 @@
+# Specialized FX test
+# Top bars: inner glow + burst particles
+# Ring: soft bloom + orbit particles
+# Bottom bars: outer glow + orb particles
+
+layer=1,bars,bars,bars_soft,#7ae8ff,0.46,standard,0,color_mode=static,bars_anchor=top,bars_direction=down,neon=1,glow_style=inner,neon_strength=1.80,neon_layers=3,particles=1,particles_mode=bars_base,particles_style=burst,particles_color_mode=static,particles_color=#7ae8ff,particles_glow_strength=1.80,base_light=1,base_light_alpha=0.24,base_light_height=18,base_light_color=#7ae8ff,base_light_color_mode=static
+layer=1,ring,bars,ring_energy,#ff8fd8,0.44,standard,0,color_mode=static,neon=1,glow_style=soft_bloom,neon_strength=1.55,neon_layers=3,particles=1,particles_mode=ring_center,particles_style=orbit,particles_color_mode=static,particles_color=#ff8fd8,particles_glow_strength=1.70,afterglow=1,afterglow_decay=0.84,afterglow_alpha=0.18
+layer=1,bars,bars,bars_soft,#ffd84a,0.52,standard,0,color_mode=static,bars_anchor=bottom,bars_direction=up,neon=1,glow_style=outer,neon_strength=1.95,neon_layers=3,particles=1,particles_mode=bars_base,particles_style=orb,particles_color_mode=static,particles_color=#ffd84a,particles_glow_strength=1.95,base_light=1,base_light_alpha=0.28,base_light_height=20,base_light_color=#ffd84a,base_light_color_mode=static

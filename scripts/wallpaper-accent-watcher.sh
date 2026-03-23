@@ -225,6 +225,35 @@ extract_palette_roles() {
       }
       return [h,s,l];
     }
+    function hslToRgb(h,s,l){
+      if (s === 0) return [l,l,l];
+      const hue2rgb = (p,q,t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      return [
+        hue2rgb(p,q,h + 1/3),
+        hue2rgb(p,q,h),
+        hue2rgb(p,q,h - 1/3)
+      ];
+    }
+    function vividify(hex, method) {
+      const rgb = hexToRgb(hex);
+      if (!rgb) return hex;
+      let [h,s,l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+      if (method === "rgb_r") s = clamp(s * 1.22 + 0.06, 0.38, 0.96);
+      else if (method === "rgb_g") s = clamp(s * 1.14 + 0.04, 0.34, 0.92);
+      else if (method === "rgb_b") s = clamp(s * 1.10 + 0.03, 0.34, 0.92);
+      else s = clamp(s * 1.08 + 0.02, 0.28, 0.90);
+      const [r,g,b] = hslToRgb(h,s,l);
+      return rgbToHex(r,g,b).toUpperCase();
+    }
     function scoreCandidate(candidate, targetL) {
       const [r,g,b] = hexToRgb(candidate.hex) || [1,1,1];
       const [,s,l] = rgbToHsl(r,g,b);
@@ -235,9 +264,9 @@ extract_palette_roles() {
     }
     function dominantChannel(candidate, method) {
       const [r,g,b] = hexToRgb(candidate.hex) || [0,0,0];
-      if (method === "rgb_r") return r >= g && r >= b && (r - Math.max(g, b)) >= 0.05;
-      if (method === "rgb_g") return g >= r && g >= b && (g - Math.max(r, b)) >= 0.05;
-      if (method === "rgb_b") return b >= r && b >= g && (b - Math.max(r, g)) >= 0.05;
+      if (method === "rgb_r") return r >= g && r >= b && (r - Math.max(g, b)) >= 0.015;
+      if (method === "rgb_g") return g >= r && g >= b && (g - Math.max(r, b)) >= 0.015;
+      if (method === "rgb_b") return b >= r && b >= g && (b - Math.max(r, g)) >= 0.015;
       return true;
     }
     function distinctEnough(a, b) {
@@ -267,7 +296,7 @@ extract_palette_roles() {
       .filter(Boolean)
       .filter((candidate) => candidate.count > 10)
       .sort((a, b) => b.count - a.count)
-      .slice(0, 12);
+      .slice(0, 24);
     if (candidates.length === 0) process.exit(0);
     const filtered = candidates.filter((candidate) => dominantChannel(candidate, method));
     const activeCandidates = filtered.length >= 3 ? filtered : filtered.length > 0 ? filtered : candidates;
@@ -287,10 +316,27 @@ extract_palette_roles() {
     const mid = choose(midTarget, chosen) ?? activeCandidates.find((c) => c.hex !== light.hex) ?? light;
     chosen.push(mid);
     const dark = choose(darkTarget, chosen) ?? activeCandidates.find((c) => c.hex !== light.hex && c.hex !== mid.hex) ?? mid;
+    const exportCandidates = activeCandidates.slice(0, 8)
+      .map((candidate, index) => `candidate_${index + 1}=${candidate.hex}`)
+      .join("\n");
+    const channelCandidates = (methodName, prefix) => {
+      return candidates
+        .filter((candidate) => dominantChannel(candidate, methodName))
+        .slice(0, 4)
+        .map((candidate, index) => `${prefix}_${index + 1}=${vividify(candidate.hex, methodName)}`)
+        .join("\n");
+    };
+    const exportR = channelCandidates("rgb_r", "candidate_r");
+    const exportG = channelCandidates("rgb_g", "candidate_g");
+    const exportB = channelCandidates("rgb_b", "candidate_b");
     process.stdout.write(
       "accent_light=" + light.hex + "\n" +
       "accent_mid=" + mid.hex + "\n" +
-      "accent_dark=" + dark.hex + "\n"
+      "accent_dark=" + dark.hex + "\n" +
+      (exportCandidates ? exportCandidates + "\n" : "") +
+      (exportR ? exportR + "\n" : "") +
+      (exportG ? exportG + "\n" : "") +
+      (exportB ? exportB + "\n" : "")
     );
   ' "$bg_luma" "$role_method" "$target_light" "$target_mid" "$target_dark" 2>/dev/null || true
 }
@@ -369,10 +415,21 @@ derive_palette_roles() {
     const light = hslToRgb(h, clamp(s * 0.92, 0.48, 0.90), lightTarget);
     const mid = hslToRgb(h, clamp(s, 0.56, 0.96), midTarget);
     const dark = hslToRgb(h, clamp(s * 0.86, 0.42, 0.88), darkTarget);
+    const lightHex = rgbToHex(light[0], light[1], light[2]).toUpperCase();
+    const midHex = rgbToHex(mid[0], mid[1], mid[2]).toUpperCase();
+    const darkHex = rgbToHex(dark[0], dark[1], dark[2]).toUpperCase();
     process.stdout.write(
-      "accent_light=" + rgbToHex(light[0], light[1], light[2]).toUpperCase() + "\n" +
-      "accent_mid=" + rgbToHex(mid[0], mid[1], mid[2]).toUpperCase() + "\n" +
-      "accent_dark=" + rgbToHex(dark[0], dark[1], dark[2]).toUpperCase() + "\n"
+      "accent_light=" + lightHex + "\n" +
+      "accent_mid=" + midHex + "\n" +
+      "accent_dark=" + darkHex + "\n" +
+      "candidate_1=" + lightHex + "\n" +
+      "candidate_2=" + midHex + "\n" +
+      "candidate_3=" + darkHex + "\n" +
+      "candidate_r_1=" + midHex + "\n" +
+      "candidate_g_1=" + midHex + "\n" +
+      "candidate_b_1=" + lightHex + "\n" +
+      "candidate_b_2=" + midHex + "\n" +
+      "candidate_b_3=" + darkHex + "\n"
     );
   ' "$hex" "$bg_luma" "$target_light" "$target_mid" "$target_dark" 2>/dev/null || true
 }

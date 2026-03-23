@@ -1,0 +1,5 @@
+# Blend mode test
+# Ring in the center plus bottom bars so their overlap is visible.
+
+layer=1,ring,bars,ring_energy,#7ae8ff,0.54,standard,0,color_mode=static,blend_mode=screen,particles=1,particles_mode=ring_center,particles_style=soft,particles_color_mode=static,particles_color=#7ae8ff,particles_glow_strength=2.10,neon=1,neon_strength=1.90,neon_layers=4,afterglow=1,afterglow_decay=0.84,afterglow_alpha=0.24
+layer=1,bars,bars,bars_soft,#ff7ad8,0.52,standard,0,color_mode=static,bars_anchor=bottom,bars_direction=up,blend_mode=add,particles=1,particles_mode=bars_base,particles_style=soft,particles_color_mode=static,particles_color=#ff7ad8,particles_glow_strength=2.00,neon=1,neon_strength=1.80,neon_layers=4,afterglow=1,afterglow_decay=0.84,afterglow_alpha=0.22,base_light=1,base_light_alpha=0.28,base_light_height=20,base_light_color=#ff7ad8,base_light_color_mode=static

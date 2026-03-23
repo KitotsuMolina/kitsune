@@ -66,6 +66,70 @@ enum ColorMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlendMode {
+    Normal,
+    Add,
+    Screen,
+    Multiply,
+}
+
+impl BlendMode {
+    fn from_str(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "add" | "plus" | "additive" => Self::Add,
+            "screen" => Self::Screen,
+            "multiply" | "mul" => Self::Multiply,
+            _ => Self::Normal,
+        }
+    }
+
+    fn cairo_operator(self) -> gtk::cairo::Operator {
+        match self {
+            Self::Normal => gtk::cairo::Operator::Over,
+            Self::Add => gtk::cairo::Operator::Add,
+            Self::Screen => gtk::cairo::Operator::Screen,
+            Self::Multiply => gtk::cairo::Operator::Multiply,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaletteChannel {
+    Auto,
+    Red,
+    Green,
+    Blue,
+}
+
+impl PaletteChannel {
+    fn from_str(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "r" | "red" => Self::Red,
+            "g" | "green" => Self::Green,
+            "b" | "blue" => Self::Blue,
+            _ => Self::Auto,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderQuality {
+    Performance,
+    Balanced,
+    High,
+}
+
+impl RenderQuality {
+    fn from_str(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "performance" | "perf" | "low" => Self::Performance,
+            "high" | "ultra" => Self::High,
+            _ => Self::Balanced,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpectrumZone {
     Full,
     Bass,
@@ -188,6 +252,7 @@ struct Config {
     color_palette_file: PathBuf,
     dynamic_contrast_guard: bool,
     dynamic_contrast_threshold: f64,
+    render_quality: RenderQuality,
     bar_width: f64,
     bar_gap: f64,
     bar_corner_radius: f64,
@@ -242,6 +307,9 @@ struct Config {
     particles_color: RgbaColor,
     particles_color_mode: ColorMode,
     particles_glow_strength: f64,
+    particle_glow_pass_cap: usize,
+    particles_update_divisor: u32,
+    afterglow_update_divisor: u32,
     base_light_enabled: bool,
     base_light_height: f64,
     base_light_alpha: f64,
@@ -260,6 +328,31 @@ struct GroupLayer {
     color_mode: ColorMode,
     alpha: f64,
     auto_hide: bool,
+    blend_mode: BlendMode,
+    palette_channel: PaletteChannel,
+    target_luma: Option<f64>,
+    bars_anchor: Option<BarsAnchor>,
+    bars_direction: Option<BarsDirection>,
+    particles_enabled: bool,
+    particles_mode: ParticleMode,
+    particles_style: ParticleStyle,
+    particles_color_mode: ColorMode,
+    particles_static_color: RgbaColor,
+    particles_glow_strength: Option<f64>,
+    particles_alpha_mult: Option<f64>,
+    particles_size_mult: Option<f64>,
+    glow_style: Option<GlowStyle>,
+    neon_enabled: Option<bool>,
+    neon_strength: Option<f64>,
+    neon_layers: Option<usize>,
+    afterglow_enabled: Option<bool>,
+    afterglow_decay: Option<f64>,
+    afterglow_alpha: Option<f64>,
+    base_light_enabled: bool,
+    base_light_height: Option<f64>,
+    base_light_alpha: Option<f64>,
+    base_light_color_mode: ColorMode,
+    base_light_static_color: RgbaColor,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -293,6 +386,9 @@ struct OverlayParticle {
     age: f64,
     size: f64,
     alpha: f64,
+    color: Option<RgbaColor>,
+    color2: Option<RgbaColor>,
+    glow_strength: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -309,6 +405,131 @@ impl ParticleMode {
             "ring_center" | "ring-center" | "ring" => Self::RingCenter,
             _ => Self::Auto,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParticleStyle {
+    Soft,
+    Spark,
+    Dust,
+    Neon,
+    Orb,
+    Trail,
+    Burst,
+    Orbit,
+}
+
+impl ParticleStyle {
+    fn from_str(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "spark" => Self::Spark,
+            "dust" => Self::Dust,
+            "neon" => Self::Neon,
+            "orb" => Self::Orb,
+            "trail" => Self::Trail,
+            "burst" => Self::Burst,
+            "orbit" => Self::Orbit,
+            _ => Self::Soft,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GlowStyle {
+    Neon,
+    Inner,
+    Outer,
+    SoftBloom,
+}
+
+impl GlowStyle {
+    fn from_str(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "inner" | "inner_glow" | "inner-glow" => Self::Inner,
+            "outer" | "outer_glow" | "outer-glow" => Self::Outer,
+            "soft_bloom" | "soft-bloom" | "bloom" => Self::SoftBloom,
+            _ => Self::Neon,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ParticleStyleTuning {
+    alpha_mult: f64,
+    size_mult: f64,
+    glow_mult: f64,
+    speed_mult: f64,
+    drift_mult: f64,
+    life_mult: f64,
+}
+
+fn particle_style_tuning(style: ParticleStyle) -> ParticleStyleTuning {
+    match style {
+        ParticleStyle::Soft => ParticleStyleTuning {
+            alpha_mult: 1.0,
+            size_mult: 1.0,
+            glow_mult: 1.0,
+            speed_mult: 1.0,
+            drift_mult: 1.0,
+            life_mult: 1.0,
+        },
+        ParticleStyle::Spark => ParticleStyleTuning {
+            alpha_mult: 1.15,
+            size_mult: 0.88,
+            glow_mult: 1.25,
+            speed_mult: 1.18,
+            drift_mult: 1.05,
+            life_mult: 0.82,
+        },
+        ParticleStyle::Dust => ParticleStyleTuning {
+            alpha_mult: 0.92,
+            size_mult: 1.45,
+            glow_mult: 0.85,
+            speed_mult: 0.72,
+            drift_mult: 1.35,
+            life_mult: 1.32,
+        },
+        ParticleStyle::Neon => ParticleStyleTuning {
+            alpha_mult: 1.20,
+            size_mult: 1.18,
+            glow_mult: 1.55,
+            speed_mult: 1.05,
+            drift_mult: 0.95,
+            life_mult: 1.08,
+        },
+        ParticleStyle::Orb => ParticleStyleTuning {
+            alpha_mult: 1.08,
+            size_mult: 1.85,
+            glow_mult: 1.40,
+            speed_mult: 0.70,
+            drift_mult: 0.75,
+            life_mult: 1.45,
+        },
+        ParticleStyle::Trail => ParticleStyleTuning {
+            alpha_mult: 0.95,
+            size_mult: 0.86,
+            glow_mult: 1.05,
+            speed_mult: 1.10,
+            drift_mult: 0.90,
+            life_mult: 1.80,
+        },
+        ParticleStyle::Burst => ParticleStyleTuning {
+            alpha_mult: 1.28,
+            size_mult: 0.92,
+            glow_mult: 1.35,
+            speed_mult: 1.75,
+            drift_mult: 1.10,
+            life_mult: 0.62,
+        },
+        ParticleStyle::Orbit => ParticleStyleTuning {
+            alpha_mult: 1.02,
+            size_mult: 1.06,
+            glow_mult: 1.18,
+            speed_mult: 0.92,
+            drift_mult: 0.52,
+            life_mult: 1.22,
+        },
     }
 }
 
@@ -350,18 +571,46 @@ struct Palette {
     accent_light: RgbaColor,
     accent_mid: RgbaColor,
     accent_dark: RgbaColor,
+    candidates: [RgbaColor; 8],
+    candidate_count: usize,
+    red_candidates: [RgbaColor; 4],
+    red_candidate_count: usize,
+    green_candidates: [RgbaColor; 4],
+    green_candidate_count: usize,
+    blue_candidates: [RgbaColor; 4],
+    blue_candidate_count: usize,
 }
 
 impl Palette {
     fn from_base(base: RgbaColor, alt: RgbaColor) -> Self {
+        let accent_light = vivid_color(gradient_color(base, alt, 0.55));
+        let accent_mid = vivid_color(gradient_color(base, alt, 0.25));
+        let accent_dark = vivid_color(gradient_color(
+            base,
+            RgbaColor::from_hex_with_alpha("#101820", base.a),
+            0.65,
+        ));
         Self {
-            accent_light: vivid_color(gradient_color(base, alt, 0.55)),
-            accent_mid: vivid_color(gradient_color(base, alt, 0.25)),
-            accent_dark: vivid_color(gradient_color(
-                base,
-                RgbaColor::from_hex_with_alpha("#101820", base.a),
-                0.65,
-            )),
+            accent_light,
+            accent_mid,
+            accent_dark,
+            candidates: [
+                accent_light,
+                accent_mid,
+                accent_dark,
+                vivid_color(gradient_color(accent_light, accent_mid, 0.5)),
+                vivid_color(gradient_color(accent_mid, accent_dark, 0.5)),
+                vivid_color(gradient_color(accent_light, accent_dark, 0.5)),
+                vivid_color(gradient_color(accent_light, RgbaColor { r: 1.0, g: 1.0, b: 1.0, a: accent_light.a }, 0.20)),
+                vivid_color(gradient_color(accent_dark, RgbaColor::from_hex_with_alpha("#101820", accent_dark.a), 0.22)),
+            ],
+            candidate_count: 8,
+            red_candidates: [accent_mid; 4],
+            red_candidate_count: 0,
+            green_candidates: [accent_mid; 4],
+            green_candidate_count: 0,
+            blue_candidates: [accent_mid; 4],
+            blue_candidate_count: 0,
         }
     }
 
@@ -385,7 +634,33 @@ impl Palette {
             return fallback;
         }
         let candidate = self.resolve(mode, fallback);
-        if !enabled || color_luma(candidate) <= threshold {
+        if !enabled {
+            return candidate;
+        }
+
+        let bright_wallpaper = self.is_bright_palette(threshold);
+        if bright_wallpaper {
+            return match mode {
+                ColorMode::AccentLight => {
+                    if color_luma(self.accent_dark) <= threshold {
+                        self.accent_dark
+                    } else {
+                        darken_color(self.accent_dark, 0.22)
+                    }
+                }
+                ColorMode::AccentMid => {
+                    if color_luma(self.accent_dark) <= threshold {
+                        darken_color(self.accent_dark, 0.10)
+                    } else {
+                        darken_color(self.accent_dark, 0.30)
+                    }
+                }
+                ColorMode::AccentDark => darken_color(self.accent_dark, 0.12),
+                ColorMode::Static => fallback,
+            };
+        }
+
+        if color_luma(candidate) <= threshold {
             return candidate;
         }
 
@@ -409,6 +684,80 @@ impl Palette {
             ColorMode::AccentDark => darken_color(candidate, 0.24),
             ColorMode::Static => fallback,
         }
+    }
+
+    fn is_bright_palette(&self, threshold: f64) -> bool {
+        let weighted = (color_luma(self.accent_light) * 0.55)
+            + (color_luma(self.accent_mid) * 0.35)
+            + (color_luma(self.accent_dark) * 0.10);
+        weighted >= (threshold - 0.08)
+            || (color_luma(self.accent_light) >= threshold
+                && color_luma(self.accent_mid) >= (threshold - 0.12))
+    }
+
+    fn resolve_custom_dynamic(
+        &self,
+        fallback_mode: ColorMode,
+        fallback: RgbaColor,
+        channel: PaletteChannel,
+        target_luma: Option<f64>,
+        contrast_guard_enabled: bool,
+        contrast_threshold: f64,
+    ) -> RgbaColor {
+        let base = self.resolve_with_contrast_guard(
+            fallback_mode,
+            fallback,
+            contrast_guard_enabled,
+            contrast_threshold,
+        );
+        if channel == PaletteChannel::Auto && target_luma.is_none() {
+            return base;
+        }
+
+        let general_candidates: Vec<RgbaColor> = if self.candidate_count > 0 {
+            self.candidates[..self.candidate_count].to_vec()
+        } else {
+            vec![
+                self.resolve_with_contrast_guard(ColorMode::AccentLight, self.accent_light, contrast_guard_enabled, contrast_threshold),
+                self.resolve_with_contrast_guard(ColorMode::AccentMid, self.accent_mid, contrast_guard_enabled, contrast_threshold),
+                self.resolve_with_contrast_guard(ColorMode::AccentDark, self.accent_dark, contrast_guard_enabled, contrast_threshold),
+            ]
+        };
+        let channel_candidates: Vec<RgbaColor> = match channel {
+            PaletteChannel::Red if self.red_candidate_count > 0 => {
+                self.red_candidates[..self.red_candidate_count].to_vec()
+            }
+            PaletteChannel::Green if self.green_candidate_count > 0 => {
+                self.green_candidates[..self.green_candidate_count].to_vec()
+            }
+            PaletteChannel::Blue if self.blue_candidate_count > 0 => {
+                self.blue_candidates[..self.blue_candidate_count].to_vec()
+            }
+            _ => Vec::new(),
+        };
+        let filtered_general: Vec<RgbaColor> = general_candidates
+            .iter()
+            .copied()
+            .filter(|color| color_matches_channel(*color, channel))
+            .collect();
+        let pool = if !channel_candidates.is_empty() {
+            &channel_candidates
+        } else if !filtered_general.is_empty() {
+            &filtered_general
+        } else {
+            &general_candidates
+        };
+        let target_luma = target_luma.unwrap_or(color_luma(base)).clamp(0.0, 1.0);
+        pool.iter()
+            .copied()
+            .min_by(|a, b| {
+                let a_score = (color_luma(*a) - target_luma).abs();
+                let b_score = (color_luma(*b) - target_luma).abs();
+                a_score
+                    .partial_cmp(&b_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap_or(base)
     }
 }
 
@@ -481,6 +830,15 @@ fn color_luma(color: RgbaColor) -> f64 {
     0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b
 }
 
+fn color_matches_channel(color: RgbaColor, channel: PaletteChannel) -> bool {
+    match channel {
+        PaletteChannel::Auto => true,
+        PaletteChannel::Red => color.r >= color.g && color.r >= color.b,
+        PaletteChannel::Green => color.g >= color.r && color.g >= color.b,
+        PaletteChannel::Blue => color.b >= color.r && color.b >= color.g,
+    }
+}
+
 fn darken_color(color: RgbaColor, amount: f64) -> RgbaColor {
     let factor = (1.0 - amount).clamp(0.0, 1.0);
     RgbaColor {
@@ -528,6 +886,21 @@ fn map_get_num_f64(map: &HashMap<String, String>, key: &str, default: f64) -> f6
     map.get(key)
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(default)
+}
+
+fn effective_neon_layers(mode: VisualMode, requested_layers: usize, quality: RenderQuality) -> usize {
+    let requested_layers = requested_layers.max(1);
+    match quality {
+        RenderQuality::High => requested_layers,
+        RenderQuality::Balanced => match mode {
+            VisualMode::Ring => requested_layers.min(2),
+            VisualMode::Bars => requested_layers.min(4),
+        },
+        RenderQuality::Performance => match mode {
+            VisualMode::Ring => requested_layers.min(1),
+            VisualMode::Bars => requested_layers.min(2),
+        },
+    }
 }
 
 fn parse_config(path: &Path) -> Config {
@@ -594,6 +967,10 @@ fn parse_config(path: &Path) -> Config {
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.68)
         .clamp(0.35, 0.95);
+    let render_quality = map
+        .get("render_quality")
+        .map(|v| RenderQuality::from_str(v))
+        .unwrap_or(RenderQuality::Balanced);
     let bar_width = map
         .get("bar_width")
         .and_then(|v| v.parse::<f64>().ok())
@@ -832,6 +1209,33 @@ fn parse_config(path: &Path) -> Config {
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(1.15)
         .clamp(0.0, 4.0);
+    let particle_glow_pass_cap = map
+        .get("particle_glow_pass_cap")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(match render_quality {
+            RenderQuality::Performance => 1,
+            RenderQuality::Balanced => 2,
+            RenderQuality::High => 3,
+        })
+        .clamp(0, 4);
+    let particles_update_divisor = map
+        .get("particles_update_divisor")
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(match render_quality {
+            RenderQuality::Performance => 3,
+            RenderQuality::Balanced => 2,
+            RenderQuality::High => 1,
+        })
+        .clamp(1, 8);
+    let afterglow_update_divisor = map
+        .get("afterglow_update_divisor")
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(match render_quality {
+            RenderQuality::Performance => 3,
+            RenderQuality::Balanced => 2,
+            RenderQuality::High => 1,
+        })
+        .clamp(1, 8);
     let base_light_enabled = map
         .get("base_light_enabled")
         .map(|v| parse_boolish(v))
@@ -868,6 +1272,7 @@ fn parse_config(path: &Path) -> Config {
         color_palette_file,
         dynamic_contrast_guard,
         dynamic_contrast_threshold,
+        render_quality,
         bar_width,
         bar_gap,
         bar_corner_radius,
@@ -922,6 +1327,9 @@ fn parse_config(path: &Path) -> Config {
         particles_color,
         particles_color_mode,
         particles_glow_strength,
+        particle_glow_pass_cap,
+        particles_update_divisor,
+        afterglow_update_divisor,
         base_light_enabled,
         base_light_height,
         base_light_alpha,
@@ -1051,26 +1459,156 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
         let alpha = parts[5].parse::<f64>().unwrap_or(1.0).clamp(0.0, 1.0);
         let mut color_mode = ColorMode::Static;
         let mut auto_hide = mode == VisualMode::Ring;
+        let mut blend_mode = BlendMode::Normal;
+        let mut palette_channel = PaletteChannel::Auto;
+        let mut target_luma = None;
         let mut zone = SpectrumZone::Full;
+        let mut bars_anchor = None;
+        let mut bars_direction = None;
+        let mut particles_enabled = false;
+        let mut particles_mode = ParticleMode::Auto;
+        let mut particles_style = ParticleStyle::Soft;
+        let mut particles_color_mode = color_mode;
+        let mut particles_static_color = RgbaColor::from_hex_with_alpha(parts[4], alpha);
+        let mut particles_glow_strength = None;
+        let mut particles_alpha_mult = None;
+        let mut particles_size_mult = None;
+        let mut glow_style = None;
+        let mut neon_enabled = None;
+        let mut neon_strength = None;
+        let mut neon_layers = None;
+        let mut afterglow_enabled = None;
+        let mut afterglow_decay = None;
+        let mut afterglow_alpha = None;
+        let mut base_light_enabled = false;
+        let mut base_light_height = None;
+        let mut base_light_alpha = None;
+        let mut base_light_color_mode = color_mode;
+        let mut base_light_static_color = RgbaColor::from_hex_with_alpha(parts[4], alpha);
         if matches!(
             parts[4].to_ascii_lowercase().as_str(),
             "accent_light" | "accent_mid" | "accent_dark" | "static"
         ) {
             color_mode = ColorMode::from_str(parts[4]);
+            particles_color_mode = color_mode;
+            base_light_color_mode = color_mode;
         }
         for extra in parts.iter().skip(6) {
             if let Some((key, value)) = extra.split_once('=')
                 && key.trim().eq_ignore_ascii_case("color_mode")
             {
                 color_mode = ColorMode::from_str(value);
+                particles_color_mode = color_mode;
+                base_light_color_mode = color_mode;
             } else if let Some((key, value)) = extra.split_once('=')
                 && key.trim().eq_ignore_ascii_case("auto_hide")
             {
                 auto_hide = parse_boolish(value);
             } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("blend_mode")
+            {
+                blend_mode = BlendMode::from_str(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("palette_channel")
+            {
+                palette_channel = PaletteChannel::from_str(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("target_luma")
+            {
+                target_luma = value.parse::<f64>().ok().map(|v| v.clamp(0.0, 1.0));
+            } else if let Some((key, value)) = extra.split_once('=')
                 && key.trim().eq_ignore_ascii_case("zone")
             {
                 zone = SpectrumZone::from_str(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("bars_anchor")
+            {
+                bars_anchor = Some(BarsAnchor::from_str(value));
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("bars_direction")
+            {
+                bars_direction = Some(BarsDirection::from_str(value));
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("particles")
+            {
+                particles_enabled = parse_boolish(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("particles_mode")
+            {
+                particles_mode = ParticleMode::from_str(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("particles_style")
+            {
+                particles_style = ParticleStyle::from_str(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("particles_color_mode")
+            {
+                particles_color_mode = ColorMode::from_str(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("particles_color")
+            {
+                particles_static_color = RgbaColor::from_hex_with_alpha(value, alpha);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("particles_glow_strength")
+            {
+                particles_glow_strength = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("particles_alpha_mult")
+            {
+                particles_alpha_mult = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("particles_size_mult")
+            {
+                particles_size_mult = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && (key.trim().eq_ignore_ascii_case("glow_style")
+                    || key.trim().eq_ignore_ascii_case("neon_style"))
+            {
+                glow_style = Some(GlowStyle::from_str(value));
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("neon")
+            {
+                neon_enabled = Some(parse_boolish(value));
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("neon_strength")
+            {
+                neon_strength = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("neon_layers")
+            {
+                neon_layers = value.parse::<usize>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("afterglow")
+            {
+                afterglow_enabled = Some(parse_boolish(value));
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("afterglow_decay")
+            {
+                afterglow_decay = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("afterglow_alpha")
+            {
+                afterglow_alpha = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("base_light")
+            {
+                base_light_enabled = parse_boolish(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("base_light_height")
+            {
+                base_light_height = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("base_light_alpha")
+            {
+                base_light_alpha = value.parse::<f64>().ok();
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("base_light_color_mode")
+            {
+                base_light_color_mode = ColorMode::from_str(value);
+            } else if let Some((key, value)) = extra.split_once('=')
+                && key.trim().eq_ignore_ascii_case("base_light_color")
+            {
+                base_light_static_color = RgbaColor::from_hex_with_alpha(value, alpha);
             }
         }
         let static_color = if color_mode == ColorMode::Static {
@@ -1088,6 +1626,31 @@ fn parse_group_layers(config_path: &Path, group_path: &Path) -> Vec<GroupLayer> 
             color_mode,
             alpha,
             auto_hide,
+            blend_mode,
+            palette_channel,
+            target_luma,
+            bars_anchor,
+            bars_direction,
+            particles_enabled,
+            particles_mode,
+            particles_style,
+            particles_color_mode,
+            particles_static_color,
+            particles_glow_strength,
+            particles_alpha_mult,
+            particles_size_mult,
+            glow_style,
+            neon_enabled,
+            neon_strength,
+            neon_layers,
+            afterglow_enabled,
+            afterglow_decay,
+            afterglow_alpha,
+            base_light_enabled,
+            base_light_height,
+            base_light_alpha,
+            base_light_color_mode,
+            base_light_static_color,
         });
     }
     layers
@@ -1184,6 +1747,14 @@ fn load_palette(path: &Path, fallback: Palette) -> Palette {
     let mut light = None;
     let mut mid = None;
     let mut dark = None;
+    let mut candidates = [fallback.accent_light; 8];
+    let mut candidate_count = 0_usize;
+    let mut red_candidates = [fallback.accent_mid; 4];
+    let mut red_candidate_count = 0_usize;
+    let mut green_candidates = [fallback.accent_mid; 4];
+    let mut green_candidate_count = 0_usize;
+    let mut blue_candidates = [fallback.accent_mid; 4];
+    let mut blue_candidate_count = 0_usize;
     for line in raw.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -1197,6 +1768,30 @@ fn load_palette(path: &Path, fallback: Palette) -> Palette {
             "accent_light" => light = Some(parsed),
             "accent_mid" => mid = Some(parsed),
             "accent_dark" => dark = Some(parsed),
+            k if k.starts_with("candidate_r_") => {
+                if red_candidate_count < red_candidates.len() {
+                    red_candidates[red_candidate_count] = parsed;
+                    red_candidate_count += 1;
+                }
+            }
+            k if k.starts_with("candidate_g_") => {
+                if green_candidate_count < green_candidates.len() {
+                    green_candidates[green_candidate_count] = parsed;
+                    green_candidate_count += 1;
+                }
+            }
+            k if k.starts_with("candidate_b_") => {
+                if blue_candidate_count < blue_candidates.len() {
+                    blue_candidates[blue_candidate_count] = parsed;
+                    blue_candidate_count += 1;
+                }
+            }
+            k if k.starts_with("candidate_") => {
+                if candidate_count < candidates.len() {
+                    candidates[candidate_count] = parsed;
+                    candidate_count += 1;
+                }
+            }
             _ => {}
         }
     }
@@ -1204,6 +1799,14 @@ fn load_palette(path: &Path, fallback: Palette) -> Palette {
         accent_light: light.unwrap_or(fallback.accent_light),
         accent_mid: mid.unwrap_or(fallback.accent_mid),
         accent_dark: dark.unwrap_or(fallback.accent_dark),
+        candidates: if candidate_count > 0 { candidates } else { fallback.candidates },
+        candidate_count: if candidate_count > 0 { candidate_count } else { fallback.candidate_count },
+        red_candidates: if red_candidate_count > 0 { red_candidates } else { fallback.red_candidates },
+        red_candidate_count: if red_candidate_count > 0 { red_candidate_count } else { fallback.red_candidate_count },
+        green_candidates: if green_candidate_count > 0 { green_candidates } else { fallback.green_candidates },
+        green_candidate_count: if green_candidate_count > 0 { green_candidate_count } else { fallback.green_candidate_count },
+        blue_candidates: if blue_candidate_count > 0 { blue_candidates } else { fallback.blue_candidates },
+        blue_candidate_count: if blue_candidate_count > 0 { blue_candidate_count } else { fallback.blue_candidate_count },
     }
 }
 
@@ -1641,11 +2244,24 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let afterglow_state = Arc::new(Mutex::new(vec![0.0; cfg.bars]));
     let afterglow_state_for_draw = Arc::clone(&afterglow_state);
     let afterglow_state_for_timer = Arc::clone(&afterglow_state);
+    let group_afterglow_state = Arc::new(Mutex::new(Vec::<Vec<f64>>::new()));
+    let group_afterglow_state_for_draw = Arc::clone(&group_afterglow_state);
+    let group_afterglow_state_for_timer = Arc::clone(&group_afterglow_state);
     let particles = Arc::new(Mutex::new(Vec::<OverlayParticle>::new()));
     let particles_for_draw = Arc::clone(&particles);
     let particles_for_timer = Arc::clone(&particles);
+    let group_particles = Arc::new(Mutex::new(Vec::<Vec<OverlayParticle>>::new()));
+    let group_particles_for_draw = Arc::clone(&group_particles);
+    let group_particles_for_timer = Arc::clone(&group_particles);
+    let palette_for_particles_tick = Arc::clone(&palette);
     let particle_accum = Arc::new(Mutex::new(0.0_f64));
     let particle_accum_for_timer = Arc::clone(&particle_accum);
+    let group_particle_rr = Arc::new(Mutex::new(0_usize));
+    let group_particle_rr_for_timer = Arc::clone(&group_particle_rr);
+    let particle_frame_counter = Arc::new(Mutex::new(0_u64));
+    let particle_frame_counter_for_timer = Arc::clone(&particle_frame_counter);
+    let afterglow_frame_counter = Arc::new(Mutex::new(0_u64));
+    let afterglow_frame_counter_for_timer = Arc::clone(&afterglow_frame_counter);
     let rng_state = Arc::new(Mutex::new(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1667,6 +2283,10 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let particles_color = cfg.particles_color;
     let particles_color_mode = cfg.particles_color_mode;
     let particles_glow_strength = cfg.particles_glow_strength;
+    let particle_glow_pass_cap = cfg.particle_glow_pass_cap;
+    let particles_update_divisor = cfg.particles_update_divisor.max(1);
+    let afterglow_update_divisor = cfg.afterglow_update_divisor.max(1);
+    let render_quality = cfg.render_quality;
     let base_light_enabled = cfg.base_light_enabled;
     let base_light_height = cfg.base_light_height;
     let base_light_alpha = cfg.base_light_alpha;
@@ -1675,6 +2295,7 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let dynamic_contrast_guard = cfg.dynamic_contrast_guard;
     let dynamic_contrast_threshold = cfg.dynamic_contrast_threshold;
     let cfg_for_particles = cfg.clone();
+    let cfg_for_draw_layers = cfg.clone();
 
     drawing_area.set_draw_func(move |_, ctx, width, height| {
         ctx.set_source_rgba(0.0, 0.0, 0.0, 0.0);
@@ -1701,16 +2322,58 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 .lock()
                 .map(|v| v.clone())
                 .unwrap_or_default();
+            let layer_particles = group_particles_for_draw
+                .lock()
+                .map(|v| v.clone())
+                .unwrap_or_default();
+            let layer_afterglow_states = group_afterglow_state_for_draw
+                .lock()
+                .map(|v| v.clone())
+                .unwrap_or_default();
+            let mut particle_draw_queue: Vec<(Vec<OverlayParticle>, RgbaColor, RgbaColor, f64, BlendMode)> = Vec::new();
             for (layer_index, layer) in layers.iter().enumerate().rev() {
                 if !layer.enabled {
                     continue;
                 }
-                let base_color = current_palette.resolve_with_contrast_guard(
-                    layer.color_mode,
-                    layer.static_color,
-                    dynamic_contrast_guard,
-                    dynamic_contrast_threshold,
+                let base_color = if layer.color_mode == ColorMode::Static {
+                    layer.static_color
+                } else {
+                    current_palette.resolve_custom_dynamic(
+                        layer.color_mode,
+                        layer.static_color,
+                        layer.palette_channel,
+                        layer.target_luma,
+                        dynamic_contrast_guard,
+                        dynamic_contrast_threshold,
+                    )
+                };
+                let layer_base_light_color = if layer.base_light_color_mode == ColorMode::Static {
+                    layer.base_light_static_color
+                } else {
+                    current_palette.resolve_custom_dynamic(
+                        layer.base_light_color_mode,
+                        layer.base_light_static_color,
+                        layer.palette_channel,
+                        layer.target_luma,
+                        dynamic_contrast_guard,
+                        dynamic_contrast_threshold,
+                    )
+                };
+                let (layer_bars_anchor, layer_bars_direction) =
+                    effective_bars_orientation_for_layer(layer, &cfg_for_draw_layers);
+                let layer_neon_enabled = layer.neon_enabled.unwrap_or(neon_enabled);
+                let layer_glow_style = layer.glow_style.unwrap_or(GlowStyle::Neon);
+                let layer_neon_strength = layer.neon_strength.unwrap_or(neon_strength);
+                let layer_neon_layers = effective_neon_layers(
+                    layer.mode,
+                    layer.neon_layers.unwrap_or(neon_layers),
+                    render_quality,
                 );
+                let layer_afterglow_enabled = layer.afterglow_enabled.unwrap_or(afterglow_enabled);
+                let layer_afterglow_alpha = layer.afterglow_alpha.unwrap_or(afterglow_alpha);
+                let layer_base_light_enabled = layer.base_light_enabled;
+                let layer_base_light_height = layer.base_light_height.unwrap_or(base_light_height);
+                let layer_base_light_alpha = layer.base_light_alpha.unwrap_or(base_light_alpha);
                 let zoned_values = apply_spectrum_zone(&values, layer.zone);
                 let layer_values = apply_layer_profile(&zoned_values, layer.mode, &layer.profile);
                 let visibility_alpha = vis
@@ -1720,11 +2383,26 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 if visibility_alpha <= 0.001 {
                     continue;
                 }
-                let layer_color2 = gradient_color(base_color, current_palette.accent_light, 0.35);
+                let layer_color2 = gradient_color(
+                    base_color,
+                    current_palette.resolve_custom_dynamic(
+                        ColorMode::AccentLight,
+                        current_palette.accent_light,
+                        layer.palette_channel,
+                        layer.target_luma.map(|v| (v + 0.12).clamp(0.0, 1.0)),
+                        dynamic_contrast_guard,
+                        dynamic_contrast_threshold,
+                    ),
+                    0.35,
+                );
                 let layer_alpha = (layer.alpha * visibility_alpha * 1.8).clamp(0.0, 1.0);
-                if afterglow_enabled && afterglow_alpha > 0.001 {
-                    let ghost_zoned = apply_spectrum_zone(&afterglow_values, layer.zone);
-                    let ghost_values = apply_layer_profile(&ghost_zoned, layer.mode, &layer.profile);
+                let _ = ctx.save();
+                ctx.set_operator(layer.blend_mode.cairo_operator());
+                if layer_afterglow_enabled && layer_afterglow_alpha > 0.001 {
+                    let ghost_values = layer_afterglow_states
+                        .get(layer_index)
+                        .cloned()
+                        .unwrap_or_default();
                     draw_visual_layer_with_effects(
                         ctx,
                         width as f64,
@@ -1749,19 +2427,20 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                         ring_fill_softness,
                         ring_fill_overlap_px,
                         line_max_height_ratio,
-                        bars_anchor,
-                        bars_direction,
+                        layer_bars_anchor,
+                        layer_bars_direction,
                         ring_inner_ratio,
                         ring_length_ratio,
                         polygon_sides,
-                        (layer_alpha * afterglow_alpha).clamp(0.0, 1.0),
+                        (layer_alpha * layer_afterglow_alpha).clamp(0.0, 1.0),
                         false,
-                        neon_strength,
-                        neon_layers,
+                        layer_glow_style,
+                        layer_neon_strength,
+                        layer_neon_layers,
                         false,
-                        base_light_height,
-                        base_light_alpha,
-                        resolved_base_light_color,
+                        layer_base_light_height,
+                        layer_base_light_alpha,
+                        layer_base_light_color,
                     );
                 }
                 draw_visual_layer_with_effects(
@@ -1788,43 +2467,55 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     ring_fill_softness,
                     ring_fill_overlap_px,
                     line_max_height_ratio,
-                    bars_anchor,
-                    bars_direction,
+                    layer_bars_anchor,
+                    layer_bars_direction,
                     ring_inner_ratio,
                     ring_length_ratio,
                     polygon_sides,
                     layer_alpha,
-                    neon_enabled,
-                    neon_strength,
-                    neon_layers,
-                    base_light_enabled,
-                    base_light_height,
-                    base_light_alpha,
-                    resolved_base_light_color,
+                    layer_neon_enabled,
+                    layer_glow_style,
+                    layer_neon_strength,
+                    layer_neon_layers,
+                    layer_base_light_enabled,
+                    layer_base_light_height,
+                    layer_base_light_alpha,
+                    layer_base_light_color,
                 );
-            }
-            if particles_enabled {
-                let particle_color = current_palette.resolve_with_contrast_guard(
-                    particles_color_mode,
-                    particles_color,
-                    dynamic_contrast_guard,
-                    dynamic_contrast_threshold,
-                );
-                let particle_color2 = current_palette.resolve_with_contrast_guard(
-                    ColorMode::AccentLight,
-                    color2,
-                    dynamic_contrast_guard,
-                    dynamic_contrast_threshold,
-                );
-                if let Ok(live_particles) = particles_for_draw.lock() {
-                    draw_particles(
-                        ctx,
-                        &live_particles,
+                let _ = ctx.restore();
+                if layer.particles_enabled
+                    && let Some(live_particles) = layer_particles.get(layer_index)
+                {
+                    let (particle_color, particle_color2) = resolve_group_layer_particle_colors(
+                        current_palette,
+                        layer,
+                        color2,
+                        dynamic_contrast_guard,
+                        dynamic_contrast_threshold,
+                    );
+                    particle_draw_queue.push((
+                        live_particles.clone(),
                         particle_color,
                         particle_color2,
-                        particles_glow_strength,
-                    );
+                        layer
+                            .particles_glow_strength
+                            .unwrap_or(particles_glow_strength),
+                        layer.blend_mode,
+                    ));
                 }
+            }
+            for (live_particles, particle_color, particle_color2, glow_strength, blend_mode) in particle_draw_queue {
+                let _ = ctx.save();
+                ctx.set_operator(blend_mode.cairo_operator());
+                draw_particles(
+                    ctx,
+                    &live_particles,
+                    particle_color,
+                    particle_color2,
+                    glow_strength,
+                    particle_glow_pass_cap,
+                );
+                let _ = ctx.restore();
             }
             return;
         }
@@ -1845,6 +2536,7 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             VisualMode::Ring => single_ring_style,
             VisualMode::Bars => single_bars_style,
         };
+        let single_neon_layers = effective_neon_layers(single_mode, neon_layers, render_quality);
         if afterglow_enabled && afterglow_alpha > 0.001 {
             draw_visual_layer_with_effects(
                 ctx,
@@ -1877,8 +2569,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 polygon_sides,
                 afterglow_alpha.clamp(0.0, 1.0),
                 false,
+                GlowStyle::Neon,
                 neon_strength,
-                neon_layers,
+                single_neon_layers,
                 false,
                 base_light_height,
                 base_light_alpha,
@@ -1916,8 +2609,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             polygon_sides,
             1.0,
             neon_enabled,
+            GlowStyle::Neon,
             neon_strength,
-            neon_layers,
+            single_neon_layers,
             base_light_enabled,
             base_light_height,
             base_light_alpha,
@@ -1937,6 +2631,7 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     particle_color,
                     single_color2,
                     particles_glow_strength,
+                    particle_glow_pass_cap,
                 );
             }
         }
@@ -1948,17 +2643,68 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
         if let Some(area) = area_weak.upgrade() {
             let dt = tick_ms as f64 / 1000.0;
             let snapshot = stream_for_tick.lock().map(|v| v.clone()).unwrap_or_default();
-            if afterglow_enabled && !snapshot.is_empty()
-                && let Ok(mut ghost) = afterglow_state_for_timer.lock()
-            {
-                if ghost.len() != snapshot.len() {
-                    ghost.resize(snapshot.len(), 0.0);
+            let afterglow_tick_ready = if let Ok(mut frame_counter) = afterglow_frame_counter_for_timer.lock() {
+                *frame_counter = frame_counter.saturating_add(1);
+                (*frame_counter % u64::from(afterglow_update_divisor)) == 0
+            } else {
+                true
+            };
+            if afterglow_tick_ready {
+                let afterglow_dt = dt * afterglow_update_divisor as f64;
+                let afterglow_decay_step = afterglow_decay.powf(afterglow_dt.max(0.0001) / dt.max(0.0001));
+                if spectrum_mode != SpectrumMode::Group
+                    && afterglow_enabled
+                    && !snapshot.is_empty()
+                    && let Ok(mut ghost) = afterglow_state_for_timer.lock()
+                {
+                    if ghost.len() != snapshot.len() {
+                        ghost.resize(snapshot.len(), 0.0);
+                    }
+                    for (target, sample) in ghost.iter_mut().zip(snapshot.iter()) {
+                        *target = (sample.max(*target * afterglow_decay_step)).clamp(0.0, 1.0);
+                    }
                 }
-                for (target, sample) in ghost.iter_mut().zip(snapshot.iter()) {
-                    *target = (sample.max(*target * afterglow_decay)).clamp(0.0, 1.0);
+                if spectrum_mode == SpectrumMode::Group
+                    && !snapshot.is_empty()
+                    && let Ok(layers_snapshot) = group_layers_for_tick.lock().map(|v| v.clone())
+                    && let Ok(mut per_layer_ghosts) = group_afterglow_state_for_timer.lock()
+                {
+                    if per_layer_ghosts.len() != layers_snapshot.len() {
+                        per_layer_ghosts.resize_with(layers_snapshot.len(), Vec::new);
+                    }
+                    for (layer_index, layer) in layers_snapshot.iter().enumerate() {
+                        let layer_afterglow_enabled = layer.afterglow_enabled.unwrap_or(afterglow_enabled);
+                        let layer_afterglow_decay = layer.afterglow_decay.unwrap_or(afterglow_decay);
+                        let layer_afterglow_decay_step =
+                            layer_afterglow_decay.powf(afterglow_dt.max(0.0001) / dt.max(0.0001));
+                        if !layer.enabled || !layer_afterglow_enabled {
+                            per_layer_ghosts[layer_index].clear();
+                            continue;
+                        }
+                        let zoned_values = apply_spectrum_zone(&snapshot, layer.zone);
+                        let layer_values = apply_layer_profile(&zoned_values, layer.mode, &layer.profile);
+                        let ghost = &mut per_layer_ghosts[layer_index];
+                        if ghost.len() != layer_values.len() {
+                            ghost.resize(layer_values.len(), 0.0);
+                        }
+                        for (target, sample) in ghost.iter_mut().zip(layer_values.iter()) {
+                            *target = (sample.max(*target * layer_afterglow_decay_step)).clamp(0.0, 1.0);
+                        }
+                    }
                 }
             }
-            if particles_enabled && particles_max > 0 && width_height_valid(cfg_for_particles.width, cfg_for_particles.height) {
+            let particles_tick_ready = if let Ok(mut frame_counter) = particle_frame_counter_for_timer.lock() {
+                *frame_counter = frame_counter.saturating_add(1);
+                (*frame_counter % u64::from(particles_update_divisor)) == 0
+            } else {
+                true
+            };
+            if particles_tick_ready
+                && particles_enabled
+                && particles_max > 0
+                && width_height_valid(cfg_for_particles.width, cfg_for_particles.height)
+            {
+                let particle_dt = dt * particles_update_divisor as f64;
                 let layers_snapshot = group_layers_for_tick.lock().map(|v| v.clone()).unwrap_or_default();
                 let mode = effective_particle_mode(
                     particle_mode,
@@ -1966,43 +2712,130 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     single_mode,
                     &layers_snapshot,
                 );
-                let mut spawn_budget = particles_spawn_rate * dt;
+                let palette_snapshot = palette_for_particles_tick
+                    .lock()
+                    .map(|v| *v)
+                    .unwrap_or(default_palette);
+                let mut spawn_budget = particles_spawn_rate * particle_dt;
                 if let Ok(mut accum) = particle_accum_for_timer.lock() {
                     *accum += spawn_budget;
                     spawn_budget = accum.floor();
                     *accum -= spawn_budget;
                 }
-                if let Ok(mut rng) = rng_state_for_timer.lock()
-                    && let Ok(mut live_particles) = particles_for_timer.lock()
-                {
-                    for _ in 0..spawn_budget as usize {
-                        if live_particles.len() >= particles_max {
-                            break;
+                if let Ok(mut rng) = rng_state_for_timer.lock() {
+                    let particle_layers: Vec<GroupLayer> = if spectrum_mode == SpectrumMode::Group {
+                        layers_snapshot
+                            .iter()
+                            .filter(|layer| layer.enabled && layer.particles_enabled)
+                            .cloned()
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    if spectrum_mode == SpectrumMode::Group && !particle_layers.is_empty() {
+                        if let Ok(mut per_layer_particles) = group_particles_for_timer.lock() {
+                            if per_layer_particles.len() != layers_snapshot.len() {
+                                per_layer_particles.resize_with(layers_snapshot.len(), Vec::new);
+                            }
+                            let enabled_indices: Vec<usize> = layers_snapshot
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(idx, layer)| if layer.enabled && layer.particles_enabled { Some(idx) } else { None })
+                                .collect();
+                            let mut rr_cursor = group_particle_rr_for_timer
+                                .lock()
+                                .map(|v| *v)
+                                .unwrap_or(0);
+                            for spawn_index in 0..spawn_budget as usize {
+                                if enabled_indices.is_empty() {
+                                    break;
+                                }
+                                let layer_index = enabled_indices[(rr_cursor + spawn_index) % enabled_indices.len()];
+                                let layer = &layers_snapshot[layer_index];
+                                let total_count: usize = per_layer_particles.iter().map(Vec::len).sum();
+                                if total_count >= particles_max {
+                                    break;
+                                }
+                                let (primary, secondary) = resolve_group_layer_particle_colors(
+                                    palette_snapshot,
+                                    layer,
+                                    color2,
+                                    dynamic_contrast_guard,
+                                    dynamic_contrast_threshold,
+                                );
+                                let glow = layer
+                                    .particles_glow_strength
+                                    .unwrap_or(cfg_for_particles.particles_glow_strength);
+                                per_layer_particles[layer_index].push(spawn_group_layer_particle(
+                                    &mut rng,
+                                    layer,
+                                    cfg_for_particles.width as f64,
+                                    cfg_for_particles.height as f64,
+                                    &cfg_for_particles,
+                                    primary,
+                                    secondary,
+                                    glow,
+                                ));
+                            }
+                            if !enabled_indices.is_empty()
+                                && let Ok(mut rr) = group_particle_rr_for_timer.lock()
+                            {
+                                rr_cursor = (rr_cursor + spawn_budget as usize) % enabled_indices.len();
+                                *rr = rr_cursor;
+                            }
+                            for particles_for_layer in per_layer_particles.iter_mut() {
+                                for particle in particles_for_layer.iter_mut() {
+                                    particle.age += particle_dt;
+                                    particle.x += particle.vx * particle_dt;
+                                    particle.y += particle.vy * particle_dt;
+                                    particle.vx += lerp(-cfg_for_particles.particles_drift, cfg_for_particles.particles_drift, pseudo_rand01(&mut rng)) * particle_dt * 0.18;
+                                    if particle.vx.abs() <= particle.vy.abs() {
+                                        particle.vy += particle.vy.signum() * particles_speed_max * particle_dt * 0.06;
+                                    } else {
+                                        particle.vx += particle.vx.signum() * particles_speed_max * particle_dt * 0.06;
+                                    }
+                                }
+                                particles_for_layer.retain(|particle| {
+                                    particle.age < particle.life
+                                        && particle.x >= -32.0
+                                        && particle.x <= cfg_for_particles.width as f64 + 32.0
+                                        && particle.y >= -64.0
+                                        && particle.y <= cfg_for_particles.height as f64 + 64.0
+                                });
+                            }
                         }
-                        live_particles.push(spawn_overlay_particle(
-                            &mut rng,
-                            mode,
-                            cfg_for_particles.width as f64,
-                            cfg_for_particles.height as f64,
-                            &cfg_for_particles,
-                        ));
-                    }
-                    for particle in live_particles.iter_mut() {
-                        particle.age += dt;
-                        particle.x += particle.vx * dt;
-                        particle.y += particle.vy * dt;
-                        particle.vx += lerp(-cfg_for_particles.particles_drift, cfg_for_particles.particles_drift, pseudo_rand01(&mut rng)) * dt * 0.18;
-                        if mode == ParticleMode::BarsBase {
-                            particle.vy -= particles_speed_max * dt * 0.06;
+                    } else if let Ok(mut live_particles) = particles_for_timer.lock() {
+                        for _ in 0..spawn_budget as usize {
+                            if live_particles.len() >= particles_max {
+                                break;
+                            }
+                            live_particles.push(spawn_overlay_particle(
+                                &mut rng,
+                                mode,
+                                cfg_for_particles.width as f64,
+                                cfg_for_particles.height as f64,
+                                &cfg_for_particles,
+                            ));
                         }
+                        for particle in live_particles.iter_mut() {
+                            particle.age += particle_dt;
+                            particle.x += particle.vx * particle_dt;
+                            particle.y += particle.vy * particle_dt;
+                            particle.vx += lerp(-cfg_for_particles.particles_drift, cfg_for_particles.particles_drift, pseudo_rand01(&mut rng)) * particle_dt * 0.18;
+                            if particle.vx.abs() <= particle.vy.abs() {
+                                particle.vy += particle.vy.signum() * particles_speed_max * particle_dt * 0.06;
+                            } else {
+                                particle.vx += particle.vx.signum() * particles_speed_max * particle_dt * 0.06;
+                            }
+                        }
+                        live_particles.retain(|particle| {
+                            particle.age < particle.life
+                                && particle.x >= -32.0
+                                && particle.x <= cfg_for_particles.width as f64 + 32.0
+                                && particle.y >= -64.0
+                                && particle.y <= cfg_for_particles.height as f64 + 64.0
+                        });
                     }
-                    live_particles.retain(|particle| {
-                        particle.age < particle.life
-                            && particle.x >= -32.0
-                            && particle.x <= cfg_for_particles.width as f64 + 32.0
-                            && particle.y >= -64.0
-                            && particle.y <= cfg_for_particles.height as f64 + 64.0
-                    });
                 }
             }
             area.queue_draw();
@@ -2152,6 +2985,170 @@ fn effective_particle_mode(
     }
 }
 
+fn effective_particle_mode_for_layer(layer: &GroupLayer, cfg: &Config) -> ParticleMode {
+    match layer.particles_mode {
+        ParticleMode::Auto => match layer.mode {
+            VisualMode::Ring => ParticleMode::RingCenter,
+            VisualMode::Bars => match cfg.bars_anchor {
+                BarsAnchor::Top | BarsAnchor::Bottom => ParticleMode::BarsBase,
+                BarsAnchor::Left => ParticleMode::BarsBase,
+                BarsAnchor::Right => ParticleMode::BarsBase,
+            },
+        },
+        explicit => explicit,
+    }
+}
+
+fn effective_bars_orientation_for_layer(layer: &GroupLayer, cfg: &Config) -> (BarsAnchor, BarsDirection) {
+    let anchor = layer.bars_anchor.unwrap_or(cfg.bars_anchor);
+    let raw_direction = layer.bars_direction.unwrap_or(cfg.bars_direction);
+    let direction = match anchor {
+        BarsAnchor::Bottom => match raw_direction {
+            BarsDirection::Up | BarsDirection::Down => raw_direction,
+            _ => BarsDirection::Up,
+        },
+        BarsAnchor::Top => match raw_direction {
+            BarsDirection::Up | BarsDirection::Down => raw_direction,
+            _ => BarsDirection::Down,
+        },
+        BarsAnchor::Left => match raw_direction {
+            BarsDirection::Left | BarsDirection::Right => raw_direction,
+            _ => BarsDirection::Right,
+        },
+        BarsAnchor::Right => match raw_direction {
+            BarsDirection::Left | BarsDirection::Right => raw_direction,
+            _ => BarsDirection::Left,
+        },
+    };
+    (anchor, direction)
+}
+
+fn resolve_group_layer_particle_colors(
+    palette: Palette,
+    layer: &GroupLayer,
+    fallback_secondary: RgbaColor,
+    dynamic_contrast_guard: bool,
+    dynamic_contrast_threshold: f64,
+) -> (RgbaColor, RgbaColor) {
+    let primary = if layer.particles_color_mode == ColorMode::Static {
+        layer.particles_static_color
+    } else {
+        palette.resolve_custom_dynamic(
+            layer.particles_color_mode,
+            layer.particles_static_color,
+            layer.palette_channel,
+            layer.target_luma,
+            dynamic_contrast_guard,
+            dynamic_contrast_threshold,
+        )
+    };
+    let secondary = gradient_color(
+        primary,
+        palette.resolve_custom_dynamic(
+            ColorMode::AccentLight,
+            fallback_secondary,
+            layer.palette_channel,
+            layer.target_luma.map(|v| (v + 0.14).clamp(0.0, 1.0)),
+            dynamic_contrast_guard,
+            dynamic_contrast_threshold,
+        ),
+        0.35,
+    );
+    (primary, secondary)
+}
+
+fn spawn_group_layer_particle(
+    rng: &mut u64,
+    layer: &GroupLayer,
+    width: f64,
+    height: f64,
+    cfg: &Config,
+    primary: RgbaColor,
+    secondary: RgbaColor,
+    glow_strength: f64,
+) -> OverlayParticle {
+    let mode = effective_particle_mode_for_layer(layer, cfg);
+    let (layer_anchor, _) = effective_bars_orientation_for_layer(layer, cfg);
+    let tuning = particle_style_tuning(layer.particles_style);
+    let mut particle = match mode {
+        ParticleMode::RingCenter => {
+            let mut particle = spawn_overlay_particle(rng, mode, width, height, cfg);
+            particle.life *= tuning.life_mult;
+            if layer.particles_style == ParticleStyle::Orbit {
+                let cx = width * 0.5;
+                let cy = height * 0.5;
+                let dx = particle.x - cx;
+                let dy = particle.y - cy;
+                let angle = dy.atan2(dx);
+                let tangential_speed = (particle.vx.abs() + particle.vy.abs()).max(cfg.particles_speed_min * 0.65);
+                particle.vx = (angle + PI * 0.5).cos() * tangential_speed;
+                particle.vy = (angle + PI * 0.5).sin() * tangential_speed;
+            }
+            particle
+        }
+        ParticleMode::BarsBase => {
+            let life = lerp(cfg.particles_life_min, cfg.particles_life_max, pseudo_rand01(rng))
+                * tuning.life_mult;
+            let speed = lerp(cfg.particles_speed_min, cfg.particles_speed_max, pseudo_rand01(rng))
+                * tuning.speed_mult;
+            let size = lerp(cfg.particles_size_min, cfg.particles_size_max, pseudo_rand01(rng))
+                * tuning.size_mult;
+            let drift = cfg.particles_drift * tuning.drift_mult;
+            let (x, y, vx, vy) = match layer_anchor {
+                BarsAnchor::Top => (
+                    pseudo_rand01(rng) * width,
+                    lerp(4.0, height * 0.08, pseudo_rand01(rng)),
+                    lerp(-drift, drift, pseudo_rand01(rng)),
+                    speed,
+                ),
+                BarsAnchor::Left => (
+                    lerp(4.0, width * 0.08, pseudo_rand01(rng)),
+                    pseudo_rand01(rng) * height,
+                    speed,
+                    lerp(-drift, drift, pseudo_rand01(rng)),
+                ),
+                BarsAnchor::Right => (
+                    width - lerp(4.0, width * 0.08, pseudo_rand01(rng)),
+                    pseudo_rand01(rng) * height,
+                    -speed,
+                    lerp(-drift, drift, pseudo_rand01(rng)),
+                ),
+                BarsAnchor::Bottom => (
+                    pseudo_rand01(rng) * width,
+                    height - lerp(4.0, height * 0.08, pseudo_rand01(rng)),
+                    lerp(-drift, drift, pseudo_rand01(rng)),
+                    -speed,
+                ),
+            };
+            OverlayParticle {
+                x,
+                y,
+                vx,
+                vy,
+                life,
+                age: 0.0,
+                size,
+                alpha: cfg.particles_alpha,
+                color: None,
+                color2: None,
+                glow_strength: None,
+            }
+        }
+        ParticleMode::Auto => spawn_overlay_particle(rng, mode, width, height, cfg),
+    };
+    particle.alpha = (particle.alpha * tuning.alpha_mult).clamp(0.0, 1.0);
+    if let Some(alpha_mult) = layer.particles_alpha_mult {
+        particle.alpha = (particle.alpha * alpha_mult).clamp(0.0, 1.0);
+    }
+    if let Some(size_mult) = layer.particles_size_mult {
+        particle.size = (particle.size * size_mult).clamp(0.5, 24.0);
+    }
+    particle.color = Some(primary);
+    particle.color2 = Some(secondary);
+    particle.glow_strength = Some(glow_strength * tuning.glow_mult);
+    particle
+}
+
 fn spawn_overlay_particle(
     rng: &mut u64,
     mode: ParticleMode,
@@ -2181,18 +3178,52 @@ fn spawn_overlay_particle(
                 age: 0.0,
                 size,
                 alpha: cfg.particles_alpha,
+                color: None,
+                color2: None,
+                glow_strength: None,
             }
         }
-        _ => OverlayParticle {
-            x: pseudo_rand01(rng) * width,
-            y: height - lerp(4.0, height * 0.08, pseudo_rand01(rng)),
-            vx: lerp(-drift, drift, pseudo_rand01(rng)),
-            vy: -speed,
-            life,
-            age: 0.0,
-            size,
-            alpha: cfg.particles_alpha,
-        },
+        _ => {
+            let (x, y, vx, vy) = match cfg.bars_anchor {
+                BarsAnchor::Top => (
+                    pseudo_rand01(rng) * width,
+                    lerp(4.0, height * 0.08, pseudo_rand01(rng)),
+                    lerp(-drift, drift, pseudo_rand01(rng)),
+                    speed,
+                ),
+                BarsAnchor::Left => (
+                    lerp(4.0, width * 0.08, pseudo_rand01(rng)),
+                    pseudo_rand01(rng) * height,
+                    speed,
+                    lerp(-drift, drift, pseudo_rand01(rng)),
+                ),
+                BarsAnchor::Right => (
+                    width - lerp(4.0, width * 0.08, pseudo_rand01(rng)),
+                    pseudo_rand01(rng) * height,
+                    -speed,
+                    lerp(-drift, drift, pseudo_rand01(rng)),
+                ),
+                BarsAnchor::Bottom => (
+                    pseudo_rand01(rng) * width,
+                    height - lerp(4.0, height * 0.08, pseudo_rand01(rng)),
+                    lerp(-drift, drift, pseudo_rand01(rng)),
+                    -speed,
+                ),
+            };
+            OverlayParticle {
+                x,
+                y,
+                vx,
+                vy,
+                life,
+                age: 0.0,
+                size,
+                alpha: cfg.particles_alpha,
+                color: None,
+                color2: None,
+                glow_strength: None,
+            }
+        }
     }
 }
 
@@ -2202,6 +3233,7 @@ fn draw_particles(
     color: RgbaColor,
     color2: RgbaColor,
     glow_strength: f64,
+    glow_pass_cap: usize,
 ) {
     for (index, particle) in particles.iter().enumerate() {
         let t = if particle.life <= 0.0 {
@@ -2210,12 +3242,15 @@ fn draw_particles(
             (particle.age / particle.life).clamp(0.0, 1.0)
         };
         let blend = ((index as f64 * 0.137) % 1.0).clamp(0.0, 1.0);
-        let c = vivid_color(gradient_color(color, color2, blend));
+        let base_color = particle.color.unwrap_or(color);
+        let base_color2 = particle.color2.unwrap_or(color2);
+        let glow_strength = particle.glow_strength.unwrap_or(glow_strength);
+        let c = vivid_color(gradient_color(base_color, base_color2, blend));
         let alpha = (particle.alpha * (1.0 - t)).clamp(0.0, 1.0);
         if alpha <= 0.001 {
             continue;
         }
-        let glow_color = vivid_color(gradient_color(color2, color, 0.35));
+        let glow_color = vivid_color(gradient_color(base_color2, base_color, 0.35));
         let glow_layers = if glow_strength <= 0.01 {
             0
         } else if glow_strength < 1.2 {
@@ -2224,7 +3259,8 @@ fn draw_particles(
             2
         } else {
             3
-        };
+        }
+        .min(glow_pass_cap);
         for pass in (1..=glow_layers).rev() {
             let pass_scale = 1.0 + (pass as f64 * 0.75 * glow_strength);
             let pass_alpha = (alpha * 0.18 * glow_strength / pass as f64).clamp(0.0, 0.55);
@@ -2276,6 +3312,7 @@ fn draw_visual_layer_with_effects(
     polygon_sides: usize,
     alpha_scale: f64,
     neon_enabled: bool,
+    glow_style: GlowStyle,
     neon_strength: f64,
     neon_layers: usize,
     base_light_enabled: bool,
@@ -2286,9 +3323,28 @@ fn draw_visual_layer_with_effects(
     if neon_enabled && neon_strength > 0.01 {
         let glow_layers = neon_layers.max(1);
         for pass in (1..=glow_layers).rev() {
-            let widen = 1.0 + (pass as f64 * 0.28 * neon_strength);
-            let glow_alpha = (alpha_scale * 0.12 * neon_strength / pass as f64).clamp(0.0, 0.5);
-            let glow_color = vivid_color(gradient_color(color2, color, 0.35));
+            let (widen, glow_alpha, glow_color) = match glow_style {
+                GlowStyle::Inner => (
+                    (1.0 - (pass as f64 * 0.08 * neon_strength)).max(0.32),
+                    (alpha_scale * 0.10 * neon_strength / pass as f64).clamp(0.0, 0.34),
+                    vivid_color(gradient_color(color, color2, 0.22)),
+                ),
+                GlowStyle::Outer => (
+                    1.0 + (pass as f64 * 0.34 * neon_strength),
+                    (alpha_scale * 0.14 * neon_strength / pass as f64).clamp(0.0, 0.56),
+                    vivid_color(gradient_color(color2, color, 0.40)),
+                ),
+                GlowStyle::SoftBloom => (
+                    1.0 + (pass as f64 * 0.52 * neon_strength),
+                    (alpha_scale * 0.08 * neon_strength / (pass as f64 * 0.9)).clamp(0.0, 0.28),
+                    vivid_color(gradient_color(color2, color, 0.50)),
+                ),
+                GlowStyle::Neon => (
+                    1.0 + (pass as f64 * 0.28 * neon_strength),
+                    (alpha_scale * 0.12 * neon_strength / pass as f64).clamp(0.0, 0.5),
+                    vivid_color(gradient_color(color2, color, 0.35)),
+                ),
+            };
             draw_visual_layer(
                 ctx,
                 width,

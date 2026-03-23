@@ -1,0 +1,6 @@
+# Top + Bottom bars layered FX test
+# Local project test group for the repo binary.
+# Both layers use bars with their own particles and base light.
+
+layer=1,bars,bars,bars_soft,#f4f7fb,0.38,standard,0,color_mode=accent_light,bars_anchor=top,bars_direction=down,particles=1,particles_mode=bars_base,particles_color_mode=accent_light,particles_glow_strength=1.45,base_light=1,base_light_alpha=0.40,base_light_height=26,base_light_color_mode=accent_light
+layer=1,bars,bars,bars_balanced,#19f0ff,0.68,standard,0,color_mode=accent_mid,bars_anchor=bottom,bars_direction=up,particles=1,particles_mode=bars_base,particles_color_mode=static,particles_color=#ffd84a,particles_glow_strength=2.40,base_light=1,base_light_alpha=0.42,base_light_height=24,base_light_color_mode=accent_dark

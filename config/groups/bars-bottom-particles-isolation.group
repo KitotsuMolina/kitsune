@@ -1,0 +1,6 @@
+# Bottom particles isolation test
+# Top bars only as reference.
+# Bottom bars own the particles and base light.
+
+layer=1,bars,bars,bars_soft,#7ae8ff,0.52,standard,0,color_mode=static,bars_anchor=top,bars_direction=down,particles=1,particles_mode=bars_base,particles_style=soft,particles_color_mode=static,particles_color=#7ae8ff,particles_glow_strength=2.20,particles_alpha_mult=1.0,particles_size_mult=1.0,neon=1,neon_strength=2.40,neon_layers=5,afterglow=0,base_light=1,base_light_alpha=0.36,base_light_height=24,base_light_color=#7ae8ff,base_light_color_mode=static
+layer=1,bars,bars,bars_soft,#7ae8ff,0.52,standard,0,color_mode=static,bars_anchor=bottom,bars_direction=up,particles=1,particles_mode=bars_base,particles_style=soft,particles_color_mode=static,particles_color=#7ae8ff,particles_glow_strength=2.20,particles_alpha_mult=1.0,particles_size_mult=1.0,neon=1,neon_strength=2.40,neon_layers=5,afterglow=1,afterglow_decay=0.90,afterglow_alpha=0.52,base_light=1,base_light_alpha=0.36,base_light_height=24,base_light_color=#7ae8ff,base_light_color_mode=static

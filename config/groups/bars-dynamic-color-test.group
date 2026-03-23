@@ -1,0 +1,6 @@
+# Dynamic color per-layer test
+# Two bars layers, one on top and one on bottom, both using blue family
+# but with different target luminance.
+
+layer=1,bars,bars,bars_soft,#ffffff,0.48,standard,0,color_mode=accent_mid,palette_channel=b,target_luma=0.78,bars_anchor=top,bars_direction=down,particles=1,particles_mode=bars_base,particles_style=soft,particles_color_mode=accent_mid,particles_glow_strength=1.80,base_light=1,base_light_alpha=0.26,base_light_height=18,base_light_color_mode=accent_mid
+layer=1,bars,bars,bars_soft,#ffffff,0.52,standard,0,color_mode=accent_mid,palette_channel=b,target_luma=0.34,bars_anchor=bottom,bars_direction=up,particles=1,particles_mode=bars_base,particles_style=soft,particles_color_mode=accent_mid,particles_glow_strength=1.80,base_light=1,base_light_alpha=0.26,base_light_height=18,base_light_color_mode=accent_mid
