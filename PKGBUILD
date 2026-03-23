@@ -44,6 +44,7 @@ package() {
   install -d "${pkgdir}/usr/share/${_pkgname}/bin"
   install -Dm755 target/release/kitsune "${pkgdir}/usr/share/${_pkgname}/bin/kitsune"
   install -Dm755 target/release/kitsune-overlay "${pkgdir}/usr/share/${_pkgname}/bin/kitsune-overlay"
+  install -Dm755 target/release/kitsune-color-resolve "${pkgdir}/usr/share/${_pkgname}/bin/kitsune-color-resolve"
 
   # Use packaged binaries instead of compiling on every start.
   sed -i \
