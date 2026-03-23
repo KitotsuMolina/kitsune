@@ -90,6 +90,7 @@ Color:
   dynamic-color <0|1>
   color-poll <segundos>
   colorwatch [monitor] [out_file] [interval] [--once]
+  color resolve-layer <index> [file.group] [--json]
 
 PostFX:
   postfx <enable:0|1> <blur_passes:0..4> <blur_mix:0..1> <glow_strength:0..3> <glow_mix:0..1> [scope:final|layer|mixed]
@@ -2579,6 +2580,57 @@ case "$cmd" in
     else
       ./scripts/wallpaper-accent-watcher.sh "$mon" "$out" "$intv"
     fi
+    ;;
+  color)
+    sub="${1:-}"
+    shift || true
+    case "$sub" in
+        resolve-layer)
+          idx="${1:-}"
+          shift || true
+          [[ -n "$idx" ]] || { echo "Uso: kitsune color resolve-layer <index> [file.group] [--spec <spec>]"; exit 1; }
+          file_arg=""
+          spec_override=""
+          while [[ $# -gt 0 ]]; do
+            case "$1" in
+              --spec)
+                spec_override="${2:-}"
+                shift 2 || true
+                ;;
+              --json)
+                shift || true
+                ;;
+              *)
+                if [[ -z "$file_arg" ]]; then
+                  file_arg="$1"
+                fi
+                shift || true
+                ;;
+            esac
+          done
+          file="$(resolve_group_file "$file_arg")" || { echo "[x] No existe group file"; exit 1; }
+          resolver_bin="$(command -v kitsune-color-resolve || true)"
+          if [[ -z "$resolver_bin" ]]; then
+            if [[ -x "./target/release/kitsune-color-resolve" ]]; then
+            resolver_bin="./target/release/kitsune-color-resolve"
+          elif [[ -x "./target/debug/kitsune-color-resolve" ]]; then
+            resolver_bin="./target/debug/kitsune-color-resolve"
+            else
+              echo "[x] No se encontro kitsune-color-resolve. Compila con: cargo build --release --bin kitsune-color-resolve"
+              exit 1
+            fi
+          fi
+          resolver_args=(--cfg "$CFG" --group-file "$file" --layer "$idx")
+          if [[ -n "$spec_override" ]]; then
+            resolver_args+=(--spec "$spec_override")
+          fi
+          "$resolver_bin" "${resolver_args[@]}"
+          ;;
+      *)
+        echo "Uso: kitsune color <resolve-layer>"
+        exit 1
+        ;;
+    esac
     ;;
   postfx)
     ./scripts/set-postfx.sh "$@"
