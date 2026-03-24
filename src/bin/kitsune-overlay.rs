@@ -1703,14 +1703,26 @@ fn apply_layer_shell(window: &gtk::ApplicationWindow, cfg: &Config, monitor: Opt
     }
 }
 
-fn write_cava_config(bar_count: usize, framerate: u32) -> std::io::Result<PathBuf> {
+fn write_cava_config(
+    bar_count: usize,
+    framerate: u32,
+    fifo_input: Option<&Path>,
+) -> std::io::Result<PathBuf> {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
     let path = env::temp_dir().join(format!("kitsune-overlay-cava-{timestamp}.conf"));
+    let input_section = fifo_input
+        .map(|fifo| {
+            format!(
+                "[input]\nmethod = fifo\nsource = {}\nsample_rate = 48000\nsample_bits = 16\nchannels = 2\n",
+                fifo.display()
+            )
+        })
+        .unwrap_or_default();
     let content = format!(
-        "[general]\nframerate = {framerate}\nbars = {bar_count}\n[output]\nmethod = raw\nraw_target = /dev/stdout\ndata_format = ascii\nascii_max_range = 1000\nchannels = mono\n"
+        "[general]\nframerate = {framerate}\nbars = {bar_count}\n{input_section}[output]\nmethod = raw\nraw_target = /dev/stdout\ndata_format = ascii\nascii_max_range = 1000\nchannels = mono\n"
     );
     fs::write(&path, content)?;
     Ok(path)
@@ -1730,74 +1742,298 @@ fn parse_cava_line(line: &str, expected_bars: usize) -> Option<Vec<f64>> {
     Some(values.into_iter().take(expected_bars).collect())
 }
 
-fn spawn_cava_stream(bar_count: usize, framerate: u32) -> std::io::Result<Arc<Mutex<Vec<f64>>>> {
+fn normalize_audio_source_slug(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut prev_dash = false;
+    for ch in raw.trim().chars() {
+        let mapped = if ch.is_ascii_alphanumeric() {
+            prev_dash = false;
+            ch.to_ascii_lowercase()
+        } else if prev_dash {
+            continue;
+        } else {
+            prev_dash = true;
+            '-'
+        };
+        out.push(mapped);
+    }
+    out.trim_matches('-').to_string()
+}
+
+fn resolve_sink_input_index_for_audio_source(source: &str) -> Option<u32> {
+    let source = source.trim();
+    if source.is_empty() || source.eq_ignore_ascii_case("global") {
+        return None;
+    }
+    if let Some(rest) = source.strip_prefix("stream:") {
+        return rest.trim().parse::<u32>().ok();
+    }
+    let wanted_slug = if let Some(rest) = source.strip_prefix("app:") {
+        normalize_audio_source_slug(rest)
+    } else {
+        normalize_audio_source_slug(source)
+    };
+    if wanted_slug.is_empty() {
+        return None;
+    }
+    let output = Command::new("pactl")
+        .arg("list")
+        .arg("sink-inputs")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut current_index: Option<u32> = None;
+    let mut application_name = String::new();
+    let mut binary_name = String::new();
+    let mut best: Option<u32> = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(raw_index) = trimmed.strip_prefix("Sink Input #") {
+            current_index = raw_index.trim().parse::<u32>().ok();
+            application_name.clear();
+            binary_name.clear();
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("application.name = \"") {
+            application_name = value.trim_end_matches('"').to_string();
+        } else if let Some(value) = trimmed.strip_prefix("application.process.binary = \"") {
+            binary_name = value.trim_end_matches('"').to_string();
+        }
+        let app_slug = normalize_audio_source_slug(&application_name);
+        let bin_slug = normalize_audio_source_slug(&binary_name);
+        if let Some(index) = current_index
+            && (app_slug == wanted_slug || bin_slug == wanted_slug)
+        {
+            best = Some(index);
+        }
+    }
+    best
+}
+
+fn spawn_cava_stream(
+    bar_count: usize,
+    framerate: u32,
+    audio_source: Option<&str>,
+) -> std::io::Result<Arc<Mutex<Vec<f64>>>> {
     let latest = Arc::new(Mutex::new(vec![0.0; bar_count]));
-    let config_path = write_cava_config(bar_count, framerate)?;
     let latest_for_thread = Arc::clone(&latest);
+    let requested_source = audio_source.map(str::to_string);
 
     thread::spawn(move || {
-        let mut command = Command::new("cava");
-        command
-            .arg("-p")
-            .arg(&config_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(err) => {
-                eprintln!("[overlay] failed to start cava: {err}");
-                let _ = fs::remove_file(&config_path);
-                return;
-            }
-        };
-
-        let stdout = match child.stdout.take() {
-            Some(stdout) => stdout,
-            None => {
-                eprintln!("[overlay] cava produced no stdout");
-                let _ = child.kill();
-                let _ = fs::remove_file(&config_path);
-                return;
-            }
-        };
-
-        let mut reader = BufReader::new(stdout);
-        let mut line = String::new();
         let mut smoothed = vec![0.0; bar_count];
-
         loop {
-            line.clear();
-            match reader.read_line(&mut line) {
-                Ok(0) => break,
-                Ok(_) => {
-                    if let Some(values) = parse_cava_line(&line, bar_count) {
-                        for (slot, input) in smoothed.iter_mut().zip(values.iter()) {
-                            let attack = 0.24;
-                            let decay = 0.84;
-                            if *input > *slot {
-                                *slot = *slot + ((*input - *slot) * attack);
-                            } else {
-                                *slot *= decay;
-                            }
-                        }
-                        if let Ok(mut target) = latest_for_thread.lock() {
-                            *target = smoothed.clone();
-                        }
+            let mut fifo_path = None;
+            let mut parec_child = None;
+            let capture_index = requested_source
+                .as_deref()
+                .and_then(resolve_sink_input_index_for_audio_source);
+            if requested_source.is_some() && capture_index.is_none() {
+                if let Ok(mut target) = latest_for_thread.lock() {
+                    target.fill(0.0);
+                }
+                thread::sleep(Duration::from_secs(2));
+                continue;
+            }
+            if let Some(index) = capture_index {
+                let fifo = env::temp_dir().join(format!("kitsune-overlay-stream-{index}.raw"));
+                let _ = fs::remove_file(&fifo);
+                if let Err(err) = std::process::Command::new("mkfifo").arg(&fifo).status() {
+                    eprintln!("[overlay] failed to create fifo for source {index}: {err}");
+                    thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+                let writer = match fs::OpenOptions::new().write(true).open(&fifo) {
+                    Ok(file) => file,
+                    Err(err) => {
+                        eprintln!("[overlay] failed to open fifo writer for source {index}: {err}");
+                        let _ = fs::remove_file(&fifo);
+                        thread::sleep(Duration::from_secs(2));
+                        continue;
+                    }
+                };
+                let child = Command::new("parec")
+                    .arg(format!("--monitor-stream={index}"))
+                    .arg("--raw")
+                    .arg("--rate=48000")
+                    .arg("--format=s16le")
+                    .arg("--channels=2")
+                    .stdout(Stdio::from(writer))
+                    .stderr(Stdio::null())
+                    .spawn();
+                match child {
+                    Ok(child) => {
+                        parec_child = Some(child);
+                        fifo_path = Some(fifo);
+                    }
+                    Err(err) => {
+                        eprintln!("[overlay] failed to start parec for source {index}: {err}");
+                        let _ = fs::remove_file(&fifo);
+                        thread::sleep(Duration::from_secs(2));
+                        continue;
                     }
                 }
+            }
+
+            let config_path = match write_cava_config(bar_count, framerate, fifo_path.as_deref()) {
+                Ok(path) => path,
                 Err(err) => {
-                    eprintln!("[overlay] cava read error: {err}");
-                    break;
+                    eprintln!("[overlay] failed to write cava config: {err}");
+                    if let Some(mut child) = parec_child {
+                        let _ = child.kill();
+                    }
+                    if let Some(fifo) = fifo_path {
+                        let _ = fs::remove_file(fifo);
+                    }
+                    thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+            };
+            let mut command = Command::new("cava");
+            command
+                .arg("-p")
+                .arg(&config_path)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+
+            let mut child = match command.spawn() {
+                Ok(child) => child,
+                Err(err) => {
+                    eprintln!("[overlay] failed to start cava: {err}");
+                    let _ = fs::remove_file(&config_path);
+                    if let Some(mut parec) = parec_child {
+                        let _ = parec.kill();
+                    }
+                    if let Some(fifo) = fifo_path {
+                        let _ = fs::remove_file(fifo);
+                    }
+                    thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+            };
+
+            let stdout = match child.stdout.take() {
+                Some(stdout) => stdout,
+                None => {
+                    eprintln!("[overlay] cava produced no stdout");
+                    let _ = child.kill();
+                    let _ = fs::remove_file(&config_path);
+                    if let Some(mut parec) = parec_child {
+                        let _ = parec.kill();
+                    }
+                    if let Some(fifo) = fifo_path {
+                        let _ = fs::remove_file(fifo);
+                    }
+                    thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+            };
+
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        if let Some(values) = parse_cava_line(&line, bar_count) {
+                            for (slot, input) in smoothed.iter_mut().zip(values.iter()) {
+                                let attack = 0.24;
+                                let decay = 0.84;
+                                if *input > *slot {
+                                    *slot = *slot + ((*input - *slot) * attack);
+                                } else {
+                                    *slot *= decay;
+                                }
+                            }
+                            if let Ok(mut target) = latest_for_thread.lock() {
+                                *target = smoothed.clone();
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("[overlay] cava read error: {err}");
+                        break;
+                    }
                 }
             }
-        }
 
-        let _ = child.kill();
-        let _ = fs::remove_file(&config_path);
+            let _ = child.kill();
+            let _ = fs::remove_file(&config_path);
+            if let Some(mut parec) = parec_child {
+                let _ = parec.kill();
+            }
+            if let Some(fifo) = fifo_path {
+                let _ = fs::remove_file(fifo);
+            }
+            if requested_source.is_none() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(600));
+        }
     });
 
     Ok(latest)
+}
+
+fn group_audio_source_key(layer: &GroupLayer) -> String {
+    layer
+        .audio_source
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("global"))
+        .unwrap_or("")
+        .to_string()
+}
+
+fn ensure_group_audio_streams(
+    cache: &Arc<Mutex<HashMap<String, Arc<Mutex<Vec<f64>>>>>>,
+    layers: &[GroupLayer],
+    bar_count: usize,
+    framerate: u32,
+) {
+    let mut wanted = Vec::<String>::new();
+    for layer in layers {
+        let key = group_audio_source_key(layer);
+        if !key.is_empty() && !wanted.iter().any(|existing| existing == &key) {
+            wanted.push(key);
+        }
+    }
+    if wanted.is_empty() {
+        return;
+    }
+    if let Ok(mut streams) = cache.lock() {
+        for key in wanted {
+            if streams.contains_key(&key) {
+                continue;
+            }
+            if let Ok(stream) = spawn_cava_stream(bar_count, framerate, Some(&key)) {
+                streams.insert(key, stream);
+            }
+        }
+    }
+}
+
+fn snapshot_for_layer(
+    layer: &GroupLayer,
+    default_snapshot: &[f64],
+    source_streams: &HashMap<String, Arc<Mutex<Vec<f64>>>>,
+) -> Vec<f64> {
+    let key = group_audio_source_key(layer);
+    if key.is_empty() {
+        return default_snapshot.to_vec();
+    }
+    if let Some(stream) = source_streams.get(&key)
+        && let Ok(values) = stream.lock()
+        && !values.is_empty()
+    {
+        return values.clone();
+    }
+    default_snapshot.to_vec()
 }
 
 fn draw_round_bar(ctx: &gtk::cairo::Context, x: f64, y: f64, width: f64, height: f64, radius: f64) {
@@ -2063,6 +2299,7 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
         group_path.display()
     );
     let group_layers = Arc::new(Mutex::new(parse_group_layers(&config_path, &group_path)));
+    let group_audio_streams = Arc::new(Mutex::new(HashMap::<String, Arc<Mutex<Vec<f64>>>>::new()));
     if let Ok(layers) = group_layers.lock() {
         let mut initial_palette_cache = HashMap::<String, Palette>::new();
         for layer in layers.iter() {
@@ -2076,14 +2313,20 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
         if let Ok(mut target) = palette_cache.lock() {
             *target = initial_palette_cache;
         }
+        ensure_group_audio_streams(&group_audio_streams, &layers, cfg.bars, cfg.fps);
     }
     let group_layers_for_timer = Arc::clone(&group_layers);
+    let group_audio_streams_for_draw = Arc::clone(&group_audio_streams);
+    let group_audio_streams_for_tick = Arc::clone(&group_audio_streams);
+    let group_audio_streams_for_reload = Arc::clone(&group_audio_streams);
     let group_last_mtime = Arc::new(Mutex::new(fs::metadata(&group_path).and_then(|m| m.modified()).ok()));
     let group_last_mtime_for_timer = Arc::clone(&group_last_mtime);
     let group_visibility = Arc::new(Mutex::new(Vec::<LayerVisibility>::new()));
     let group_visibility_for_draw = Arc::clone(&group_visibility);
     let group_visibility_for_timer = Arc::clone(&group_visibility);
     let group_poll_ms = cfg.group_poll_ms;
+    let group_bar_count = cfg.bars;
+    let group_fps = cfg.fps;
     let ring_show_threshold = cfg.ring_show_threshold;
     let ring_hide_threshold = cfg.ring_hide_threshold;
     let ring_fade_in_sec = cfg.ring_fade_in_sec;
@@ -2190,11 +2433,16 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 .lock()
                 .map(|v| v.clone())
                 .unwrap_or_default();
+            let source_streams_snapshot = group_audio_streams_for_draw
+                .lock()
+                .map(|v| v.clone())
+                .unwrap_or_default();
             let mut particle_draw_queue: Vec<(Vec<OverlayParticle>, RgbaColor, RgbaColor, f64, BlendMode)> = Vec::new();
             for (layer_index, layer) in layers.iter().enumerate().rev() {
                 if !layer.enabled {
                     continue;
                 }
+                let layer_input_values = snapshot_for_layer(layer, &values, &source_streams_snapshot);
                 let layer_palette = resolve_layer_palette(layer, current_palette, &palette_cache_snapshot);
                 let base_color = if layer.color_mode == ColorMode::Static {
                     layer.static_color
@@ -2262,7 +2510,7 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 let layer_ring_fill_overlap_px =
                     layer.ring_fill_overlap_px.unwrap_or(ring_fill_overlap_px);
                 let layer_polygon_sides = layer.polygon_sides.unwrap_or(polygon_sides);
-                let zoned_values = apply_spectrum_zone(&values, layer.zone);
+                let zoned_values = apply_spectrum_zone(&layer_input_values, layer.zone);
                 let layer_values = apply_layer_profile(&zoned_values, layer.mode, &layer.profile);
                 let visibility_alpha = vis
                     .get(layer_index)
@@ -2555,6 +2803,7 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                 if spectrum_mode == SpectrumMode::Group
                     && !snapshot.is_empty()
                     && let Ok(layers_snapshot) = group_layers_for_tick.lock().map(|v| v.clone())
+                    && let Ok(source_streams_snapshot) = group_audio_streams_for_tick.lock().map(|v| v.clone())
                     && let Ok(mut per_layer_ghosts) = group_afterglow_state_for_timer.lock()
                 {
                     if per_layer_ghosts.len() != layers_snapshot.len() {
@@ -2569,7 +2818,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                             per_layer_ghosts[layer_index].clear();
                             continue;
                         }
-                        let zoned_values = apply_spectrum_zone(&snapshot, layer.zone);
+                        let layer_input_values = snapshot_for_layer(layer, &snapshot, &source_streams_snapshot);
+                        let zoned_values = apply_spectrum_zone(&layer_input_values, layer.zone);
                         let layer_values = apply_layer_profile(&zoned_values, layer.mode, &layer.profile);
                         let ghost = &mut per_layer_ghosts[layer_index];
                         if ghost.len() != layer_values.len() {
@@ -2751,6 +3001,7 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
         }
         if changed {
             let layers = parse_group_layers(&config_path, &group_path);
+            ensure_group_audio_streams(&group_audio_streams_for_reload, &layers, group_bar_count, group_fps);
             if let Ok(mut target) = group_layers_for_timer.lock() {
                 *target = layers;
             }
@@ -2793,6 +3044,10 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     },
                 );
             }
+            let source_streams_snapshot = group_audio_streams_for_reload
+                .lock()
+                .map(|v| v.clone())
+                .unwrap_or_default();
             for (entry, layer) in vis.iter_mut().zip(layers.iter()) {
                 if !layer.enabled {
                     entry.alpha = 0.0;
@@ -2804,7 +3059,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                     entry.target_visible = true;
                     continue;
                 }
-                let zoned = apply_spectrum_zone(&snapshot, layer.zone);
+                let layer_input_values = snapshot_for_layer(layer, &snapshot, &source_streams_snapshot);
+                let zoned = apply_spectrum_zone(&layer_input_values, layer.zone);
                 let profiled = apply_layer_profile(&zoned, layer.mode, &layer.profile);
                 let energy = compute_layer_energy(&profiled);
                 if entry.target_visible {
@@ -4126,7 +4382,7 @@ fn draw_visual_layer(
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = parse_config(&args_config_path());
-    let stream = spawn_cava_stream(cfg.bars, cfg.fps)?;
+    let stream = spawn_cava_stream(cfg.bars, cfg.fps, None)?;
     let app = gtk::Application::builder()
         .application_id("dev.kitotsu.kitsune.overlay")
         .build();
