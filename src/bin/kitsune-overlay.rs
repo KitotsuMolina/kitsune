@@ -2256,8 +2256,15 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let drawing_area = gtk::DrawingArea::new();
     drawing_area.set_widget_name("kitsune-bars");
     strip_background_classes(&drawing_area);
-    drawing_area.set_content_width(cfg.width);
-    drawing_area.set_content_height(cfg.height);
+    let (initial_width, initial_height) = overlay_initial_dimensions(cfg);
+    if initial_width > 0 {
+        drawing_area.set_content_width(initial_width);
+    }
+    if initial_height > 0 {
+        drawing_area.set_content_height(initial_height);
+    }
+    drawing_area.set_hexpand(true);
+    drawing_area.set_vexpand(true);
     let color = cfg.color;
     let color2 = cfg.color2;
     let default_palette = Palette::from_base(color, color2);
@@ -2395,8 +2402,14 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
     let dynamic_contrast_threshold = cfg.dynamic_contrast_threshold;
     let cfg_for_particles = cfg.clone();
     let cfg_for_draw_layers = cfg.clone();
+    let viewport_size = Arc::new(Mutex::new((initial_width.max(1), initial_height.max(1))));
+    let viewport_size_for_draw = Arc::clone(&viewport_size);
+    let viewport_size_for_tick = Arc::clone(&viewport_size);
 
     drawing_area.set_draw_func(move |_, ctx, width, height| {
+        if let Ok(mut viewport) = viewport_size_for_draw.lock() {
+            *viewport = (width.max(1), height.max(1));
+        }
         ctx.set_source_rgba(0.0, 0.0, 0.0, 0.0);
         let _ = ctx.paint();
 
@@ -2840,8 +2853,15 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
             if particles_tick_ready
                 && particles_enabled
                 && particles_max > 0
-                && width_height_valid(cfg_for_particles.width, cfg_for_particles.height)
             {
+                let (viewport_width, viewport_height) = viewport_size_for_tick
+                    .lock()
+                    .map(|value| *value)
+                    .unwrap_or((cfg_for_particles.width, cfg_for_particles.height));
+                if !width_height_valid(viewport_width, viewport_height) {
+                    area.queue_draw();
+                    return glib::ControlFlow::Continue;
+                }
                 let particle_dt = dt * particles_update_divisor as f64;
                 let layers_snapshot = group_layers_for_tick.lock().map(|v| v.clone()).unwrap_or_default();
                 let mode = effective_particle_mode(
@@ -2913,8 +2933,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                                 per_layer_particles[layer_index].push(spawn_group_layer_particle(
                                     &mut rng,
                                     layer,
-                                    cfg_for_particles.width as f64,
-                                    cfg_for_particles.height as f64,
+                                    viewport_width as f64,
+                                    viewport_height as f64,
                                     &cfg_for_particles,
                                     primary,
                                     secondary,
@@ -2942,9 +2962,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                                 particles_for_layer.retain(|particle| {
                                     particle.age < particle.life
                                         && particle.x >= -32.0
-                                        && particle.x <= cfg_for_particles.width as f64 + 32.0
+                                        && particle.x <= viewport_width as f64 + 32.0
                                         && particle.y >= -64.0
-                                        && particle.y <= cfg_for_particles.height as f64 + 64.0
+                                        && particle.y <= viewport_height as f64 + 64.0
                                 });
                             }
                         }
@@ -2956,8 +2976,8 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                             live_particles.push(spawn_overlay_particle(
                                 &mut rng,
                                 mode,
-                                cfg_for_particles.width as f64,
-                                cfg_for_particles.height as f64,
+                                viewport_width as f64,
+                                viewport_height as f64,
                                 &cfg_for_particles,
                             ));
                         }
@@ -2975,9 +2995,9 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
                         live_particles.retain(|particle| {
                             particle.age < particle.life
                                 && particle.x >= -32.0
-                                && particle.x <= cfg_for_particles.width as f64 + 32.0
+                                && particle.x <= viewport_width as f64 + 32.0
                                 && particle.y >= -64.0
-                                && particle.y <= cfg_for_particles.height as f64 + 64.0
+                                && particle.y <= viewport_height as f64 + 64.0
                         });
                     }
                 }
@@ -3088,6 +3108,13 @@ fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::Drawin
 
 fn width_height_valid(width: i32, height: i32) -> bool {
     width > 0 && height > 0
+}
+
+fn overlay_initial_dimensions(cfg: &Config) -> (i32, i32) {
+    match cfg.position.as_str() {
+        "left" | "right" => (cfg.width, 1),
+        _ => (1, cfg.height),
+    }
 }
 
 fn gradient_color(a: RgbaColor, b: RgbaColor, t: f64) -> RgbaColor {
@@ -4385,6 +4412,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stream = spawn_cava_stream(cfg.bars, cfg.fps, None)?;
     let app = gtk::Application::builder()
         .application_id("dev.kitotsu.kitsune.overlay")
+        .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
         .build();
     let cfg_for_activate = cfg.clone();
 
@@ -4400,7 +4428,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.set_decorated(false);
         window.set_resizable(false);
         window.set_focusable(false);
-        window.set_default_size(cfg_for_activate.width, cfg_for_activate.height);
+        let (initial_width, initial_height) = overlay_initial_dimensions(&cfg_for_activate);
+        window.set_default_size(initial_width, initial_height);
 
         let drawing_area = build_drawing_area(&cfg_for_activate, Arc::clone(&stream));
         window.set_child(Some(&drawing_area));
