@@ -2252,11 +2252,15 @@ fn radial_distribution(
     })
 }
 
-fn build_drawing_area(cfg: &Config, stream: Arc<Mutex<Vec<f64>>>) -> gtk::DrawingArea {
+fn build_drawing_area(
+    cfg: &Config,
+    stream: Arc<Mutex<Vec<f64>>>,
+    initial_width: i32,
+    initial_height: i32,
+) -> gtk::DrawingArea {
     let drawing_area = gtk::DrawingArea::new();
     drawing_area.set_widget_name("kitsune-bars");
     strip_background_classes(&drawing_area);
-    let (initial_width, initial_height) = overlay_initial_dimensions(cfg);
     if initial_width > 0 {
         drawing_area.set_content_width(initial_width);
     }
@@ -3110,10 +3114,14 @@ fn width_height_valid(width: i32, height: i32) -> bool {
     width > 0 && height > 0
 }
 
-fn overlay_initial_dimensions(cfg: &Config) -> (i32, i32) {
+fn overlay_initial_dimensions(cfg: &Config, monitor: Option<&gdk::Monitor>) -> (i32, i32) {
+    let (monitor_width, monitor_height) = monitor
+        .map(|value| value.geometry())
+        .map(|geo| (geo.width(), geo.height()))
+        .unwrap_or((cfg.width, cfg.height));
     match cfg.position.as_str() {
-        "left" | "right" => (cfg.width, 1),
-        _ => (1, cfg.height),
+        "left" | "right" => (cfg.width.max(1), monitor_height.max(1)),
+        _ => (monitor_width.max(1), cfg.height.max(1)),
     }
 }
 
@@ -4428,13 +4436,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.set_decorated(false);
         window.set_resizable(false);
         window.set_focusable(false);
-        let (initial_width, initial_height) = overlay_initial_dimensions(&cfg_for_activate);
+        let monitor = monitor_by_name(&cfg_for_activate.monitor);
+        let (initial_width, initial_height) =
+            overlay_initial_dimensions(&cfg_for_activate, monitor.as_ref());
         window.set_default_size(initial_width, initial_height);
 
-        let drawing_area = build_drawing_area(&cfg_for_activate, Arc::clone(&stream));
+        let drawing_area = build_drawing_area(
+            &cfg_for_activate,
+            Arc::clone(&stream),
+            initial_width,
+            initial_height,
+        );
         window.set_child(Some(&drawing_area));
 
-        let monitor = monitor_by_name(&cfg_for_activate.monitor);
         apply_layer_shell(&window, &cfg_for_activate, monitor.as_ref());
 
         eprintln!(
