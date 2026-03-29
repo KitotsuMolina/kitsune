@@ -40,6 +40,8 @@ COLOR_PALETTE_FILE="$(cfg_get color_palette_file /tmp/kitsune-accent.palette)"
 COLOR_POLL="$(cfg_get color_poll_seconds 2)"
 BASE_COLOR="$(cfg_get color '#ff2f8f')"
 OUTPUT_TARGET="$(cfg_get output_target layer-shell)"
+GSK_RENDERER_VALUE="${KITSUNE_GSK_RENDERER:-ngl}"
+GDK_BACKEND_VALUE="${KITSUNE_GDK_BACKEND:-wayland}"
 
 mkdir -p "$RUN_PREFIX"
 mkdir -p "$(dirname "${LOG_PREFIX}-layer.log")"
@@ -116,6 +118,8 @@ cargo build --release --bin kitsune-overlay
 
 echo "[i] Starting gtk4-layer-shell overlay on ${TARGET_MONITOR}..."
 export KITSUNE_CFG="$CFG"
+export GSK_RENDERER="$GSK_RENDERER_VALUE"
+export GDK_BACKEND="$GDK_BACKEND_VALUE"
 ./target/release/kitsune-overlay >"${LOG_PREFIX}-layer.log" 2>&1 &
 echo $! > "$PID_LAYER"
 
